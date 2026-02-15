@@ -35,13 +35,6 @@ export default function KimiWebView(): React.JSX.Element {
     return () => clearTimeout(timer)
   }, [webviewRef, isOnline])
 
-  // Retry reload
-  const handleRetry = () => {
-    if (!webviewRef.current) return
-    setLoading(true)
-    webviewRef.current.reload()
-  }
-
   if (!isOnline) {
     return (
       <div
