@@ -1,85 +1,41 @@
-name: Release Electron App
+name: Build & Release Electron
 
 on:
   push:
     tags:
       - 'v*.*.*'
-  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: ${{ matrix.os }}
-    
+  build:
+    runs-on: ubuntu-latest
+
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
-    
+        os: [ubuntu-latest, windows-latest]
+        node: [20]
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
+      - uses: actions/checkout@v3
+
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v3
         with:
-          node-version: '20'
-          cache: 'npm'
-      
+          node-version: ${{ matrix.node }}
+
       - name: Install dependencies
         run: npm ci
-      
-      - name: Install Snapcraft (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo snap install snapcraft --classic
-      
-      # macOS code signing
-      - name: Import Code Signing Certificate (macOS)
-        if: matrix.os == 'macos-latest'
-        uses: apple-actions/import-codesign-certs@v2
-        with:
-          p12-file-base64: ${{ secrets.MACOS_CERTIFICATE }}
-          p12-password: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-      
-      # Windows code signing
-      - name: Setup Windows Code Signing (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          echo "${{ secrets.WINDOWS_CERTIFICATE }}" | base64 --decode > cert.pfx
-        shell: bash
-      
-      - name: Build & Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS notarization
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Windows code signing
-          CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE }}
-          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-          # macOS code signing
-          CSC_NAME: ${{ secrets.MACOS_CERTIFICATE_NAME }}
-        run: npm run release
-      
-      - name: Cleanup Windows Certificate
-        if: matrix.os == 'windows-latest' && always()
-        run: rm -f cert.pfx
-        shell: bash
-      
+
+      - name: Build app
+        run: npm run build
+
+      - name: Build Electron app
+        run: npm run build:electron
+
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
-          name: release-${{ matrix.os }}
-          path: |
-            dist/*.exe
-            dist/*.dmg
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.rpm
-            dist/*.snap
-            dist/*.zip
-            dist/*.tar.gz
-          retention-days: 5
+          name: electron-build-${{ matrix.os }}
+          path: dist/
