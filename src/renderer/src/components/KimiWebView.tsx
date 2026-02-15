@@ -119,7 +119,7 @@ export default function KimiWebView(): React.JSX.Element {
         ref={webviewRef}
         src="https://kimi.com"
         style={{ flex: 1, width: '100%', height: '100%' }}
-        allowpopups="true"
+        allowpopups={true}
       />
 
       {/* Animated dots */}
