@@ -35,48 +35,6 @@ jobs:
         run: |
           sudo snap install snapcraft --classic
 
-      # Read changelog from CHANGELOG.md
-      - name: Read CHANGELOG
-        id: changelog
-        shell: bash
-        run: |
-          if [ ! -f CHANGELOG.md ]; then
-            echo "Error: CHANGELOG.md not found"
-            exit 1
-          fi
-
-          # Get the current tag version
-          CURRENT_TAG=${GITHUB_REF#refs/tags/}
-
-          # Extract the section for current version (supports both ## [v1.2.0] and ## v1.2.0 formats)
-          # Reads from the version header until the next ## or end of file
-          RELEASE_NOTES=$(awk -v tag="$CURRENT_TAG" '
-            BEGIN { found=0; content="" }
-            /^##[[:space:]]+\[?v?[0-9]/ {
-              if (found) exit
-              line=$0
-              gsub(/\[|\]/, "", line)
-              if (line ~ tag) found=1
-            }
-            found { content = content $0 "\n" }
-            END { print content }
-          ' CHANGELOG.md)
-
-          if [ -z "$RELEASE_NOTES" ]; then
-            echo "Warning: No changelog entry found for $CURRENT_TAG"
-            RELEASE_NOTES="## Changes in $CURRENT_TAG\n\nSee CHANGELOG.md for details."
-          fi
-
-          # Escape for GitHub Actions (handle multiline)
-          {
-            echo "message<<EOF"
-            echo "$RELEASE_NOTES"
-            echo "EOF"
-          } >> $GITHUB_OUTPUT
-
-          echo "Extracted changelog for $CURRENT_TAG:"
-          echo "$RELEASE_NOTES"
-
       # Windows code signing
       - name: Setup Windows Code Signing
         if: matrix.os == 'windows-latest'
@@ -87,6 +45,7 @@ jobs:
       - name: Build & Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Windows code signing
           CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: npm run release
@@ -95,25 +54,6 @@ jobs:
         if: matrix.os == 'windows-latest' && always()
         run: rm -f cert.pfx
         shell: bash
-
-      # Create GitHub Release with changelog (only on Ubuntu to avoid duplicates)
-      - name: Create GitHub Release
-        if: matrix.os == 'ubuntu-latest'
-        uses: softprops/action-gh-release@v1
-        with:
-          body: ${{ steps.changelog.outputs.message }}
-          draft: false
-          prerelease: false
-          files: |
-            dist/*.exe
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.rpm
-            dist/*.snap
-            dist/*.zip
-            dist/*.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
