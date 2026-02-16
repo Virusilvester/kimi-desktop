@@ -3,9 +3,17 @@ import TitleBar from './components/TitleBar'
 
 function App(): React.JSX.Element {
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ flex: 1 }}>
-        <TitleBar />
+    <div
+      style={{
+        width: '100vw',
+        height: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden'
+      }}
+    >
+      <TitleBar />
+      <div style={{ flex: 1, position: 'relative' }}>
         <KimiWebView />
       </div>
     </div>

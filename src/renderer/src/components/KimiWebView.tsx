@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useLayoutEffect } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 
 export default function KimiWebView(): React.JSX.Element {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
@@ -21,25 +21,29 @@ export default function KimiWebView(): React.JSX.Element {
     if (isOnline) setLoading(true)
   }, [isOnline])
 
-  // Attach did-finish-load listener safely
-  useLayoutEffect(() => {
-    const attachListener = () => {
-      const webview = webviewRef.current
-      if (!webview) return
-      const handleLoad = () => setLoading(false)
-      webview.addEventListener('did-finish-load', handleLoad)
-      return () => webview.removeEventListener('did-finish-load', handleLoad)
-    }
+  // Stable callback for load handler
+  const handleLoad = useCallback(() => setLoading(false), [])
 
-    const timer = setTimeout(attachListener, 50) // wait for webview to mount
-    return () => clearTimeout(timer)
-  }, [webviewRef, isOnline])
+  // Attach did-finish-load listener properly
+  useEffect(() => {
+    const webview = webviewRef.current
+    if (!webview) return
+
+    const timer = setTimeout(() => {
+      webview.addEventListener('did-finish-load', handleLoad)
+    }, 50)
+
+    return () => {
+      clearTimeout(timer)
+      webview.removeEventListener('did-finish-load', handleLoad)
+    }
+  }, [handleLoad, isOnline])
 
   if (!isOnline) {
     return (
       <div
         style={{
-          height: '100vh',
+          height: '100%',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'center',
@@ -72,12 +76,11 @@ export default function KimiWebView(): React.JSX.Element {
   return (
     <div
       style={{
+        position: 'absolute',
+        inset: 0,
         display: 'flex',
         flexDirection: 'column',
-        flex: 1,
-        height: '100vh',
-        width: '100%',
-        position: 'relative'
+        overflow: 'hidden'
       }}
     >
       {/* Loading overlay */}
@@ -85,10 +88,7 @@ export default function KimiWebView(): React.JSX.Element {
         <div
           style={{
             position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
+            inset: 0,
             background: '#111',
             display: 'flex',
             justifyContent: 'center',
@@ -111,8 +111,8 @@ export default function KimiWebView(): React.JSX.Element {
       <webview
         ref={webviewRef}
         src="https://kimi.com"
-        style={{ flex: 1, width: '100%', height: '100%' }}
-        allowpopups={true}
+        style={{ flex: 1, width: '100%', height: '100%', border: 'none', margin: 0, padding: 0 }}
+        allowpopups="true"
       />
 
       {/* Animated dots */}
