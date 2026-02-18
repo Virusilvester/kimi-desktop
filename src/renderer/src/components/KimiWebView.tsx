@@ -1,139 +1,221 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
+import '../assets/KimiWebView.css'
+
+type ConnectionStatus = 'online' | 'offline' | 'checking' | 'error'
 
 export default function KimiWebView(): React.JSX.Element {
-  const [isOnline, setIsOnline] = useState(navigator.onLine)
-  const [loading, setLoading] = useState(true)
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
+    navigator.onLine ? 'online' : 'offline'
+  )
+  const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
   const webviewRef = useRef<Electron.WebviewTag>(null)
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Listen for online/offline
+  // Network status monitoring with retry logic
   useEffect(() => {
-    const update = () => setIsOnline(navigator.onLine)
-    window.addEventListener('online', update)
-    window.addEventListener('offline', update)
-    return () => {
-      window.removeEventListener('online', update)
-      window.removeEventListener('offline', update)
+    const handleOnline = () => {
+      setConnectionStatus('checking')
+      setTimeout(() => {
+        setConnectionStatus('online')
+        setLoadError(null)
+        setRetryCount(0)
+      }, 1000)
     }
-  }, [])
 
-  // Reset loading when back online
-  useEffect(() => {
-    if (isOnline) setLoading(true)
-  }, [isOnline])
+    const handleOffline = () => {
+      setConnectionStatus('offline')
+      setIsLoading(false)
+    }
 
-  // Stable callback for load handler
-  const handleLoad = useCallback(() => setLoading(false), [])
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
 
-  // Attach did-finish-load listener properly
+    const checkInterval = setInterval(() => {
+      if (navigator.onLine && connectionStatus === 'offline') {
+        handleOnline()
+      }
+    }, 5000)
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+      clearInterval(checkInterval)
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current)
+      }
+    }
+  }, [connectionStatus])
+
+  // Handle webview load events
   useEffect(() => {
     const webview = webviewRef.current
     if (!webview) return
 
+    const handleDidFinishLoad = () => {
+      setIsLoading(false)
+      setLoadError(null)
+      setRetryCount(0)
+    }
+
+    const handleDidFailLoad = (event: Electron.DidFailLoadEvent) => {
+      if (event.errorCode !== -3) {
+        console.error('Webview failed to load:', event.errorDescription)
+        setLoadError(event.errorDescription)
+        setIsLoading(false)
+
+        if (retryCount < 3 && navigator.onLine) {
+          retryTimeoutRef.current = setTimeout(
+            () => {
+              setRetryCount((prev) => prev + 1)
+              setIsLoading(true)
+              webview.reload()
+            },
+            3000 * (retryCount + 1)
+          )
+        }
+      }
+    }
+
+    const handleConsoleMessage = (event: Electron.ConsoleMessageEvent) => {
+      if (event.level === 3) {
+        console.error('Webview console error:', event.message)
+      }
+    }
+
+    // IMPORTANT: Delay to ensure webview is fully created
     const timer = setTimeout(() => {
-      webview.addEventListener('did-finish-load', handleLoad)
-    }, 50)
+      webview.addEventListener('did-finish-load', handleDidFinishLoad)
+      webview.addEventListener('did-fail-load', handleDidFailLoad as EventListener)
+      webview.addEventListener('console-message', handleConsoleMessage as EventListener)
+    }, 100)
 
     return () => {
       clearTimeout(timer)
-      webview.removeEventListener('did-finish-load', handleLoad)
+      webview.removeEventListener('did-finish-load', handleDidFinishLoad)
+      webview.removeEventListener('did-fail-load', handleDidFailLoad as EventListener)
+      webview.removeEventListener('console-message', handleConsoleMessage as EventListener)
     }
-  }, [handleLoad, isOnline])
+  }, [retryCount])
 
-  if (!isOnline) {
+  // Handle navigation from main process (deep linking)
+  useEffect(() => {
+    const handleNavigate = (path: string) => {
+      const webview = webviewRef.current
+      if (webview) {
+        const url = path.startsWith('http') ? path : `https://kimi.com${path}`
+        webview.src = url
+      }
+    }
+
+    if (window.api?.onNavigateTo) {
+      window.api.onNavigateTo(handleNavigate)
+    }
+
+    return () => {
+      window.api?.removeAllListeners('navigate-to')
+    }
+  }, [])
+
+  const handleRetry = useCallback(() => {
+    setLoadError(null)
+    setIsLoading(true)
+    setRetryCount(0)
+    const webview = webviewRef.current
+    if (webview) {
+      webview.reload()
+    }
+  }, [])
+
+  // Offline UI
+  if (connectionStatus === 'offline') {
     return (
-      <div
-        style={{
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-          alignItems: 'center',
-          background: '#111',
-          color: 'white'
-        }}
-      >
-        <h2>No Internet Connection</h2>
-        <p>Kimi requires an internet connection.</p>
-        <button
-          style={{
-            marginTop: 20,
-            padding: '8px 16px',
-            fontSize: 14,
-            cursor: 'pointer',
-            borderRadius: 4,
-            border: 'none',
-            background: '#4caf50',
-            color: 'white'
-          }}
-          onClick={() => window.api?.restartApp()}
-        >
-          Restart
-        </button>
+      <div className="offline-container">
+        <div className="offline-content">
+          <div className="offline-icon">📡</div>
+          <h2>You're Offline</h2>
+          <p>Kimi requires an internet connection to work.</p>
+          <p className="offline-subtext">Please check your connection and try again.</p>
+
+          <div className="offline-actions">
+            <button className="btn-primary" onClick={handleRetry}>
+              Try Again
+            </button>
+            <button className="btn-secondary" onClick={() => window.api?.restartApp()}>
+              Restart App
+            </button>
+          </div>
+
+          <div className="offline-tips">
+            <h4>Troubleshooting Tips:</h4>
+            <ul>
+              <li>Check your Wi-Fi or Ethernet connection</li>
+              <li>Disable VPN or proxy temporarily</li>
+              <li>Check if kimi.com is accessible in your browser</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Error UI
+  if (loadError && !isLoading) {
+    return (
+      <div className="error-container">
+        <div className="error-content">
+          <div className="error-icon">⚠️</div>
+          <h2>Failed to Load</h2>
+          <p className="error-message">{loadError}</p>
+          {retryCount > 0 && <p className="retry-count">Retry attempt {retryCount}/3</p>}
+
+          <div className="error-actions">
+            <button className="btn-primary" onClick={handleRetry}>
+              Reload Page
+            </button>
+            <button className="btn-secondary" onClick={() => window.api?.restartApp()}>
+              Restart App
+            </button>
+          </div>
+        </div>
       </div>
     )
   }
 
   return (
-    <div
-      style={{
-        position: 'absolute',
-        inset: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden'
-      }}
-    >
+    <div className="webview-container">
       {/* Loading overlay */}
-      {loading && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: '#111',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            flexDirection: 'column',
-            color: 'white',
-            zIndex: 10
-          }}
-        >
-          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-            <span className="dot"></span>
-            <span className="dot"></span>
-            <span className="dot"></span>
+      {isLoading && (
+        <div className="loading-overlay">
+          <div className="loading-spinner">
+            <div className="spinner-ring"></div>
+            <div className="spinner-ring"></div>
+            <div className="spinner-ring"></div>
           </div>
-          <h2>Loading Kimi...</h2>
+          <p className="loading-text">
+            {connectionStatus === 'checking' ? 'Reconnecting...' : 'Loading Kimi...'}
+          </p>
+          {retryCount > 0 && <p className="loading-retry">Attempt {retryCount + 1}</p>}
         </div>
       )}
 
-      {/* WebView */}
+      {/* 
+        CRITICAL FIXES:
+        1. partition="persist:kimi" - persistent session for cookies/storage
+        2. allowpopups="" - correct syntax (empty string = true)
+        3. webpreferences - comma-separated format with yes/no values
+        4. Removed sandbox=yes (incompatible with contextIsolation)
+      */}
       <webview
         ref={webviewRef}
         src="https://kimi.com"
-        style={{ flex: 1, width: '100%', height: '100%', border: 'none', margin: 0, padding: 0 }}
-        allowpopups={'true' as any}
-        webpreferences="contextIsolation=no, nodeIntegration=no, sandbox=yes"
+        className="kimi-webview"
+        partition="persist:kimi"
+        allowpopups=""
+        webpreferences="contextIsolation=yes, nodeIntegration=no, allowRunningInsecureContent=no, javascript=yes, plugins=no, experimentalFeatures=no"
+        useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 KimiDesktop/1.0"
       />
-
-      {/* Animated dots */}
-      <style>{`
-        .dot {
-          width: 12px;
-          height: 12px;
-          background: #4caf50;
-          border-radius: 50%;
-          animation: bounce 1.2s infinite ease-in-out;
-        }
-        .dot:nth-child(1) { animation-delay: 0s; }
-        .dot:nth-child(2) { animation-delay: 0.2s; }
-        .dot:nth-child(3) { animation-delay: 0.4s; }
-
-        @keyframes bounce {
-          0%, 80%, 100% { transform: scale(0); }
-          40% { transform: scale(1); }
-        }
-      `}</style>
     </div>
   )
 }
