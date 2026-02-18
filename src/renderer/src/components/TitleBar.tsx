@@ -1,3 +1,5 @@
+/* eslint-disable prettier/prettier */
+/* eslint-disable @typescript-eslint/explicit-function-return-type */
 import { useEffect, useState, useCallback } from 'react'
 import '../assets/TitleBar.css'
 

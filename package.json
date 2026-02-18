@@ -1,6 +1,6 @@
 {
   "name": "kimi-desktop",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Kimi Desktop - Electron wrapper for kimi.com",
   "main": "./out/main/index.js",
   "author": "ViruSilvesteR <onesilonecho@gmail.com>",

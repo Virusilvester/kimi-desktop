@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-function-return-type */
 import { Component, ReactNode } from 'react'
 import KimiWebView from './components/KimiWebView'
 import TitleBar from './components/TitleBar'

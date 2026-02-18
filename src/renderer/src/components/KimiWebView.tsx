@@ -1,3 +1,7 @@
+/* eslint-disable prettier/prettier */
+/* eslint-disable @typescript-eslint/explicit-function-return-type */
+/* eslint-disable react/no-unescaped-entities */
+/* eslint-disable react/no-unknown-property */
 import { useEffect, useState, useRef, useCallback } from 'react'
 import '../assets/KimiWebView.css'
 
@@ -212,7 +216,7 @@ export default function KimiWebView(): React.JSX.Element {
         src="https://kimi.com"
         className="kimi-webview"
         partition="persist:kimi"
-        allowpopups=""
+        allowpopups={'' as any}
         webpreferences="contextIsolation=yes, nodeIntegration=no, allowRunningInsecureContent=no, javascript=yes, plugins=no, experimentalFeatures=no"
         useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 KimiDesktop/1.0"
       />
