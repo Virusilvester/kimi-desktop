@@ -73,7 +73,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     frame: false,
     backgroundColor: '#111111',
-    show: false, // Don't show until ready
+    show: false,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -128,15 +128,13 @@ function createWindow(): void {
     mainWindow?.webContents.send('window-maximized', false)
   })
 
-  // Handle external links
+  /* ---------- FIXED: Use setWindowOpenHandler instead of deprecated 'new-window' event ---------- */
+
+  // Handle external links and prevent new windows
   mainWindow.webContents.setWindowOpenHandler((details) => {
+    // Open external URLs in default browser
     shell.openExternal(details.url)
     return { action: 'deny' }
-  })
-
-  // Security: Prevent new windows
-  mainWindow.webContents.on('new-window', (event) => {
-    event.preventDefault()
   })
 
   /* ---------- LOAD URL ---------- */
@@ -220,7 +218,6 @@ ipcMain.on('restart-app', () => {
 
 // Check for updates (placeholder - integrate with electron-updater)
 ipcMain.handle('check-for-updates', async () => {
-  // TODO: Implement with electron-updater
   return { updateAvailable: false }
 })
 
@@ -265,9 +262,18 @@ app.whenReady().then(() => {
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
-          "default-src 'self' https://kimi.com https://*.kimi.com; script-src 'self' 'unsafe-inline' https://kimi.com; style-src 'self' 'unsafe-inline' https://kimi.com; img-src 'self' data: https: blob:; connect-src 'self' https://kimi.com https://*.kimi.com; frame-src 'self' https://kimi.com;"
+          "default-src 'self' https://kimi.com https://*.kimi.com; script-src 'self' 'unsafe-inline' https://kimi.com https://*.kimi.com; style-src 'self' 'unsafe-inline' https://kimi.com https://*.kimi.com; img-src 'self' data: blob: https:; connect-src 'self' https://kimi.com https://*.kimi.com wss://*.kimi.com; font-src 'self' https://kimi.com https://*.kimi.com; frame-src 'self' https://kimi.com;"
         ]
       }
+    })
+  })
+
+  // Global handler for all webContents (including webviews)
+  app.on('web-contents-created', (_, contents) => {
+    // Set window open handler for all web contents
+    contents.setWindowOpenHandler((details) => {
+      shell.openExternal(details.url)
+      return { action: 'deny' }
     })
   })
 
@@ -314,8 +320,3 @@ if (!gotTheLock) {
     }
   })
 }
-
-// Auto-updater events (when integrated)
-// autoUpdater.on('update-available', () => {
-//   mainWindow?.webContents.send('update-available')
-// })
