@@ -1,34 +1,32 @@
-# kimi-desktop
+# Kimi Desktop
 
-An Electron application with React and TypeScript
+Unofficial desktop app for [kimi.com](https://kimi.com) built with Electron.
 
-## Recommended IDE Setup
+## Downloads
 
-- [VSCode](https://code.visualstudio.com/) + [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) + [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode)
+Get the latest version from [Releases](https://github.com/Virusilvester/kimi-desktop/releases).
 
-## Project Setup
+| Platform | Download |
+|----------|----------|
+| Windows | `.exe` installer |
+| Linux | `.AppImage`, `.deb`, `.rpm`, or `.snap` |
 
-### Install
+## Features
+
+- 🌐 Native desktop wrapper for Kimi AI
+- 💻 System tray integration
+- ⌨️ Keyboard shortcuts (Ctrl+R to reload, Ctrl++/Ctrl+- to zoom)
+- 🔄 Auto-retry on connection issues
+- 💾 Persistent login sessions
+
+## Development
 
 ```bash
-$ npm install
-```
+# Install dependencies
+npm install
 
-### Development
+# Run in development mode
+npm run dev
 
-```bash
-$ npm run dev
-```
-
-### Build
-
-```bash
-# For windows
-$ npm run build:win
-
-# For macOS
-$ npm run build:mac
-
-# For Linux
-$ npm run build:linux
-```
+# Build for production
+npm run build
