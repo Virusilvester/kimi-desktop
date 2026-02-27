@@ -6,10 +6,10 @@ Unofficial desktop app for [kimi.com](https://kimi.com) built with Electron.
 
 Get the latest version from [Releases](https://github.com/Virusilvester/kimi-desktop/releases).
 
-| Platform | Download |
-|----------|----------|
-| Windows | `.exe` installer |
-| Linux | `.AppImage`, `.deb`, `.rpm`, or `.snap` |
+| Platform | Download                                |
+| -------- | --------------------------------------- |
+| Windows  | `.exe` installer                        |
+| Linux    | `.AppImage`, `.deb`, `.rpm`, or `.snap` |
 
 ## Features
 
@@ -30,3 +30,4 @@ npm run dev
 
 # Build for production
 npm run build
+```

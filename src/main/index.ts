@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
-/* eslint-disable @typescript-eslint/no-require-imports */
 import {
   app,
   shell,
@@ -12,6 +11,7 @@ import {
   session
 } from 'electron'
 import { join } from 'path'
+import fs from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
@@ -27,6 +27,7 @@ interface WindowState {
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuiting = false
+let saveWindowStateTimer: NodeJS.Timeout | null = null
 
 // Default window state
 const defaultWindowState: WindowState = {
@@ -35,12 +36,35 @@ const defaultWindowState: WindowState = {
   isMaximized: false
 }
 
+function getWindowStatePath(): string {
+  return join(app.getPath('userData'), 'window-state.json')
+}
+
+function readSavedWindowState(): Partial<WindowState> | null {
+  try {
+    const path = getWindowStatePath()
+    if (!fs.existsSync(path)) return null
+    const contents = fs.readFileSync(path, 'utf-8')
+    return JSON.parse(contents) as Partial<WindowState>
+  } catch {
+    return null
+  }
+}
+
 function getWindowState(): WindowState {
   try {
-    const state = require('electron-store')?.get('windowState') || defaultWindowState
-    return { ...defaultWindowState, ...state }
+    const saved = readSavedWindowState()
+    return { ...defaultWindowState, ...(saved ?? {}) }
   } catch {
     return defaultWindowState
+  }
+}
+
+function writeWindowState(state: WindowState) {
+  try {
+    fs.writeFileSync(getWindowStatePath(), JSON.stringify(state), 'utf-8')
+  } catch {
+    // Ignore persistence errors
   }
 }
 
@@ -54,12 +78,15 @@ function saveWindowState() {
     y: bounds.y,
     isMaximized: mainWindow.isMaximized()
   }
-  try {
-    const Store = require('electron-store')
-    new Store().set('windowState', state)
-  } catch {
-    // Store not available
-  }
+  writeWindowState(state)
+}
+
+function scheduleSaveWindowState() {
+  if (saveWindowStateTimer) clearTimeout(saveWindowStateTimer)
+  saveWindowStateTimer = setTimeout(() => {
+    saveWindowStateTimer = null
+    saveWindowState()
+  }, 250)
 }
 
 function createWindow(): void {
@@ -103,6 +130,7 @@ function createWindow(): void {
   mainWindow.on('close', (event) => {
     if (!isQuiting && process.platform === 'darwin') {
       event.preventDefault()
+      saveWindowState()
       mainWindow?.hide()
     } else {
       saveWindowState()
@@ -111,23 +139,25 @@ function createWindow(): void {
 
   mainWindow.on('resize', () => {
     if (!mainWindow?.isMaximized()) {
-      saveWindowState()
+      scheduleSaveWindowState()
     }
   })
 
   mainWindow.on('move', () => {
     if (!mainWindow?.isMaximized()) {
-      saveWindowState()
+      scheduleSaveWindowState()
     }
   })
 
   // Maximize state events
   mainWindow.on('maximize', () => {
     mainWindow?.webContents.send('window-maximized', true)
+    scheduleSaveWindowState()
   })
 
   mainWindow.on('unmaximize', () => {
     mainWindow?.webContents.send('window-maximized', false)
+    scheduleSaveWindowState()
   })
 
   /* ---------- FIXED: Use setWindowOpenHandler instead of deprecated 'new-window' event ---------- */
@@ -236,7 +266,8 @@ ipcMain.handle('show-save-dialog', async (_, options) => {
 })
 
 // Handle protocol URLs (deep linking)
-app.on('open-url', (_, url) => {
+app.on('open-url', (event, url) => {
+  event.preventDefault()
   if (url.startsWith('kimi://')) {
     const path = url.replace('kimi://', '')
     mainWindow?.webContents.send('navigate-to', path)

@@ -19,10 +19,10 @@ declare global {
       restartApp: () => void
 
       // Window state
-      onMaximizeChange: (callback: (isMaximized: boolean) => void) => void
+      onMaximizeChange: (callback: (isMaximized: boolean) => void) => () => void
 
       // Navigation
-      onNavigateTo: (callback: (path: string) => void) => void
+      onNavigateTo: (callback: (path: string) => void) => () => void
 
       // App info
       getAppVersion: () => Promise<string>

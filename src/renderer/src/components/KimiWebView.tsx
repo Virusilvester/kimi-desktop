@@ -1,7 +1,4 @@
-/* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
-/* eslint-disable react/no-unescaped-entities */
-/* eslint-disable react/no-unknown-property */
 import { useEffect, useState, useRef, useCallback } from 'react'
 import '../assets/KimiWebView.css'
 
@@ -113,13 +110,8 @@ export default function KimiWebView(): React.JSX.Element {
       }
     }
 
-    if (window.api?.onNavigateTo) {
-      window.api.onNavigateTo(handleNavigate)
-    }
-
-    return () => {
-      window.api?.removeAllListeners('navigate-to')
-    }
+    const unsubscribe = window.api?.onNavigateTo?.(handleNavigate) ?? undefined
+    return unsubscribe
   }, [])
 
   const handleRetry = useCallback(() => {
@@ -138,7 +130,7 @@ export default function KimiWebView(): React.JSX.Element {
       <div className="offline-container">
         <div className="offline-content">
           <div className="offline-icon">📡</div>
-          <h2>You're Offline</h2>
+          <h2>You&apos;re Offline</h2>
           <p>Kimi requires an internet connection to work.</p>
           <p className="offline-subtext">Please check your connection and try again.</p>
 
@@ -207,19 +199,21 @@ export default function KimiWebView(): React.JSX.Element {
       {/* 
         CRITICAL FIXES:
         1. partition="persist:kimi" - persistent session for cookies/storage
-        2. allowpopups="" - correct syntax (empty string = true)
+        2. allowpopups - allow popups (boolean)
         3. webpreferences - comma-separated format with yes/no values
         4. Removed sandbox=yes (incompatible with contextIsolation)
       */}
+      {/* eslint-disable react/no-unknown-property */}
       <webview
         ref={webviewRef}
         src="https://kimi.com"
         className="kimi-webview"
         partition="persist:kimi"
-        allowpopups={'' as any}
+        allowpopups
         webpreferences="contextIsolation=yes, nodeIntegration=no, allowRunningInsecureContent=no, javascript=yes, plugins=no, experimentalFeatures=no"
         useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 KimiDesktop/1.0"
       />
+      {/* eslint-enable react/no-unknown-property */}
     </div>
   )
 }

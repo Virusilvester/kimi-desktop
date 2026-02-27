@@ -1,5 +1,3 @@
-/* eslint-disable prettier/prettier */
-/* eslint-disable @typescript-eslint/explicit-function-return-type */
 import { useEffect, useState, useCallback } from 'react'
 import '../assets/TitleBar.css'
 
@@ -9,41 +7,41 @@ export default function TitleBar(): React.JSX.Element {
 
   useEffect(() => {
     // Listen for maximize state changes
-    if (window.api?.onMaximizeChange) {
-      window.api.onMaximizeChange((value) => setIsMaximized(value))
-    }
+    const unsubscribe =
+      window.api?.onMaximizeChange?.((value) => setIsMaximized(value)) ?? undefined
 
     // Get app version
     window.api?.getAppVersion?.().then((version) => {
       setAppVersion(version)
     })
 
-    return () => {
-      window.api?.removeAllListeners('window-maximized')
-    }
+    return unsubscribe
   }, [])
+
+  const getWebview = (): Electron.WebviewTag | null =>
+    document.querySelector('webview') as Electron.WebviewTag | null
 
   // Keyboard shortcuts
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      const webview = getWebview()
+      if (!webview) return
+
       // Ctrl/Cmd + R: Reload
       if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
         e.preventDefault()
-        const webview = document.querySelector('webview') as Electron.WebviewTag
         webview?.reload()
       }
 
       // Ctrl/Cmd + Shift + R: Force reload
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'R') {
         e.preventDefault()
-        const webview = document.querySelector('webview') as Electron.WebviewTag
         webview?.reloadIgnoringCache()
       }
 
       // Ctrl/Cmd + =: Zoom in
       if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
         e.preventDefault()
-        const webview = document.querySelector('webview') as Electron.WebviewTag
         const currentZoom = webview?.getZoomLevel() || 0
         webview?.setZoomLevel(currentZoom + 1)
       }
@@ -51,7 +49,6 @@ export default function TitleBar(): React.JSX.Element {
       // Ctrl/Cmd + -: Zoom out
       if ((e.ctrlKey || e.metaKey) && e.key === '-') {
         e.preventDefault()
-        const webview = document.querySelector('webview') as Electron.WebviewTag
         const currentZoom = webview?.getZoomLevel() || 0
         webview?.setZoomLevel(currentZoom - 1)
       }
@@ -59,7 +56,6 @@ export default function TitleBar(): React.JSX.Element {
       // Ctrl/Cmd + 0: Reset zoom
       if ((e.ctrlKey || e.metaKey) && e.key === '0') {
         e.preventDefault()
-        const webview = document.querySelector('webview') as Electron.WebviewTag
         webview?.setZoomLevel(0)
       }
     }
@@ -68,7 +64,7 @@ export default function TitleBar(): React.JSX.Element {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  const handleDoubleClick = useCallback(() => {
+  const handleDoubleClick = useCallback((): void => {
     window.api?.maximize()
   }, [])
 
