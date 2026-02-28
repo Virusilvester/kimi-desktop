@@ -1,101 +1,108 @@
 {
   "name": "kimi-desktop",
   "version": "3.0.0",
-  "description": "Kimi Desktop - Electron wrapper for kimi.com",
-  "main": "./out/main/index.js",
-  "author": "ViruSilvesteR <onesilonecho@gmail.com>",
-  "homepage": "https://github.com/Virusilvester/kimi-desktop",
+  "description": "Unofficial desktop client for Kimi AI with offline capabilities",
+  "main": "./dist/main/index.js",
+  "author": "Virusilvester",
   "license": "MIT",
   "scripts": {
-    "format": "prettier --write .",
-    "lint": "eslint --cache .",
-    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
-    "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "dev": "electron-vite dev",
-    "start": "electron-vite preview",
-    "build": "npm run typecheck && electron-vite build",
-    "postinstall": "electron-builder install-app-deps",
-    "release": "npm run build && electron-builder",
-    "build:win": "npm run build && electron-builder --win",
-    "build:linux": "npm run build && electron-builder --linux"
-  },
-  "dependencies": {
-    "@electron-toolkit/preload": "^3.0.2",
-    "@electron-toolkit/utils": "^4.0.0",
-    "electron-updater": "^6.3.9"
-  },
-  "devDependencies": {
-    "@electron-toolkit/eslint-config-prettier": "^3.0.0",
-    "@electron-toolkit/eslint-config-ts": "^3.1.0",
-    "@electron-toolkit/tsconfig": "^2.0.0",
-    "@types/node": "^22.19.1",
-    "@types/react": "^19.2.7",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.1.1",
-    "electron": "^39.2.6",
-    "electron-builder": "^26.0.12",
-    "electron-vite": "^5.0.0",
-    "eslint": "^9.39.1",
-    "eslint-plugin-react": "^7.37.5",
-    "eslint-plugin-react-hooks": "^7.0.1",
-    "eslint-plugin-react-refresh": "^0.4.24",
-    "prettier": "^3.7.4",
-    "react": "^19.2.1",
-    "react-dom": "^19.2.1",
-    "typescript": "^5.9.3",
-    "vite": "^7.2.6"
+    "build": "npm run build:main && npm run build:preload && npm run build:renderer",
+    "build:main": "electron-vite build --config electron.vite.config.ts --outDir dist/main -m main",
+    "build:preload": "electron-vite build --config electron.vite.config.ts --outDir dist/preload -m preload",
+    "build:renderer": "electron-vite build --config electron.vite.config.ts --outDir dist/renderer -m renderer",
+    "release": "electron-builder --publish always",
+    "release:win": "electron-builder --win --publish always",
+    "release:linux": "electron-builder --linux --publish always"
   },
   "build": {
     "appId": "com.kimi.desktop",
     "productName": "Kimi Desktop",
+    "copyright": "Copyright © 2026 Virusilvester",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
-      "out/**/*",
-      "node_modules/**/*",
-      "package.json"
+      "dist/**/*",
+      "build/**/*",
+      "resources/**/*"
     ],
-    "publish": [
-      {
-        "provider": "github"
-      }
-    ],
+    "publish": {
+      "provider": "github",
+      "owner": "Virusilvester",
+      "repo": "kimi-desktop"
+    },
     "win": {
-      "icon": "resources/icon.ico",
       "target": [
         {
           "target": "nsis",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        },
+        {
+          "target": "zip",
           "arch": [
             "x64"
           ]
         }
       ],
-      "artifactName": "${productName}-Setup-${version}.${ext}"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "publisherName": "Virusilvester",
+      "verifyUpdateCodeSignature": false
     },
     "linux": {
-      "icon": "resources/icon.png",
       "target": [
         {
-          "target": "AppImage",
+          "target": "rpm",
           "arch": [
             "x64"
           ]
         },
         {
-          "target": "deb",
+          "target": "snap",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "AppImage",
           "arch": [
             "x64"
           ]
         }
       ],
-      "category": "Utility",
-      "artifactName": "${productName}-${version}.${ext}"
+      "category": "Office",
+      "maintainer": "Virusilvester",
+      "vendor": "Virusilvester",
+      "synopsis": "Unofficial desktop client for Kimi AI",
+      "description": "Kimi Desktop is an unofficial desktop wrapper for Kimi AI with offline capabilities and conversation management."
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "snap": {
+      "confinement": "strict",
+      "grade": "stable",
+      "plugs": [
+        "default",
+        "home",
+        "network",
+        "removable-media"
+      ]
     }
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1",
+    "electron-vite": "^2.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "typescript": "^5.3.0",
+    "vite": "^5.0.0"
   }
 }
