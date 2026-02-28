@@ -41,6 +41,12 @@ const defaultSettings: AppSettings = {
   cacheSize: 0
 }
 
+// Available endpoints
+const API_ENDPOINTS = [
+  { value: 'https://api.moonshot.cn/v1', label: 'China Mainland (api.moonshot.cn)', region: 'CN' },
+  { value: 'https://api.moonshot.ai/v1', label: 'International (api.moonshot.ai)', region: 'INTL' }
+]
+
 export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.Element | null {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings)
   const [apiConfig, setApiConfig] = useState<ApiConfig>({
@@ -54,6 +60,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
   const [isClearing, setIsClearing] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [apiError, setApiError] = useState<string | null>(null)
 
   useEffect(() => {
     if (isOpen) {
@@ -63,6 +70,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
 
   const loadData = async () => {
     setIsLoading(true)
+    setApiError(null)
     try {
       // Load settings
       const savedSettings = await window.api?.getSettings?.()
@@ -127,6 +135,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
 
   const handleSaveApiKey = async () => {
     setSaveStatus('saving')
+    setApiError(null)
     try {
       const result = await window.api?.saveApiKey?.(apiConfig.apiKey, apiConfig.endpoint)
       if (result?.success) {
@@ -134,10 +143,12 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
         setTimeout(() => setSaveStatus('idle'), 2000)
       } else {
         setSaveStatus('error')
+        setApiError(result?.error || 'Failed to save API key')
       }
     } catch (error) {
       console.error('Failed to save API key:', error)
       setSaveStatus('error')
+      setApiError((error as Error).message)
     }
   }
 
@@ -218,32 +229,58 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
     }
   }
 
+  // CRITICAL FIX: Use API proxy instead of direct fetch to bypass CSP
   const testApiConnection = async () => {
     if (!apiConfig.apiKey) {
-      alert('Please enter an API key first')
+      setApiError('Please enter an API key first')
       return
     }
 
     setSaveStatus('saving')
+    setApiError(null)
+
     try {
-      // Simple test request to Kimi API
-      const response = await fetch(`${apiConfig.endpoint}/models`, {
-        headers: {
-          Authorization: `Bearer ${apiConfig.apiKey}`
-        }
+      // Use main process proxy to bypass CSP restrictions
+      const result = await window.api?.kimiApiRequest?.({
+        endpoint: apiConfig.endpoint,
+        apiKey: apiConfig.apiKey,
+        method: 'GET',
+        path: '/models'
       })
 
-      if (response.ok) {
-        alert('API connection successful!')
+      if (result?.success) {
+        alert(
+          `✅ API connection successful!\\n\\nFound ${result.data.data?.length || 0} models.\\n\\nYour API key is working correctly.`
+        )
         setSaveStatus('saved')
       } else {
-        alert('API connection failed: ' + response.statusText)
+        // Handle specific error cases
+        let errorMsg = result?.error || 'Unknown error'
+
+        if (result?.status === 401) {
+          errorMsg =
+            `Invalid Authentication (401)\\n\\n` +
+            `This usually means:\\n` +
+            `1. Wrong API endpoint selected (China vs International)\\n` +
+            `2. Invalid or expired API key\\n` +
+            `3. API key from wrong platform\\n\\n` +
+            `Current endpoint: ${apiConfig.endpoint}\\n` +
+            `Try switching to the other endpoint above.`
+        } else if (result?.status === 403) {
+          errorMsg = `Access Forbidden (403)\\n\\nYour API key may not have permission to access this resource.`
+        } else if (result?.status === 429) {
+          errorMsg = `Rate Limited (429)\\n\\nToo many requests. Please wait a moment and try again.`
+        }
+
+        setApiError(errorMsg)
         setSaveStatus('error')
       }
     } catch (error) {
-      alert('API connection failed: ' + (error as Error).message)
+      const errorMsg = (error as Error).message
+      setApiError(`Connection failed: ${errorMsg}`)
       setSaveStatus('error')
     }
+
     setTimeout(() => setSaveStatus('idle'), 2000)
   }
 
@@ -462,33 +499,59 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
                     </a>
                   </div>
 
+                  {/* CRITICAL FIX: Endpoint selector */}
                   <div className="setting-item vertical">
                     <label>
-                      <span>API Endpoint</span>
-                      <small>The Kimi API endpoint URL</small>
+                      <span>API Region</span>
+                      <small>Select the correct region for your API key</small>
                     </label>
-                    <input
-                      type="text"
+                    <select
                       value={apiConfig.endpoint}
                       onChange={(e) => setApiConfig({ ...apiConfig, endpoint: e.target.value })}
-                      placeholder="https://api.moonshot.cn/v1"
-                      className="text-input"
-                    />
+                      className="endpoint-select"
+                    >
+                      {API_ENDPOINTS.map((ep) => (
+                        <option key={ep.value} value={ep.value}>
+                          {ep.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="endpoint-warning">
+                    <strong>⚠️ Important:</strong> API keys from{' '}
+                    <a href="https://platform.moonshot.cn" target="_blank">
+                      platform.moonshot.cn
+                    </a>{' '}
+                    and{' '}
+                    <a href="https://platform.moonshot.ai" target="_blank">
+                      platform.moonshot.ai
+                    </a>{' '}
+                    are completely separate. Make sure you select the correct region for your key.
                   </div>
 
                   <div className="setting-item vertical">
                     <label>
                       <span>API Key</span>
-                      <small>Your Kimi API key (stored securely)</small>
+                      <small>Your Kimi API key (starts with sk-)</small>
                     </label>
                     <input
                       type="password"
                       value={apiConfig.apiKey}
-                      onChange={(e) => setApiConfig({ ...apiConfig, apiKey: e.target.value })}
+                      onChange={(e) => {
+                        setApiConfig({ ...apiConfig, apiKey: e.target.value })
+                        setApiError(null)
+                      }}
                       placeholder="sk-..."
                       className="text-input"
                     />
                   </div>
+
+                  {apiError && (
+                    <div className="api-error">
+                      <pre>{apiError}</pre>
+                    </div>
+                  )}
 
                   <div className="api-actions">
                     <button
@@ -513,7 +576,9 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
                       <li>Your API key is stored locally and encrypted</li>
                       <li>When offline, the app will use cached conversations</li>
                       <li>New messages can be queued and sent when back online</li>
-                      <li>API calls are made directly from the app, not the webview</li>
+                      <li>
+                        API calls are proxied through the main process to bypass CSP restrictions
+                      </li>
                     </ul>
                   </div>
                 </div>

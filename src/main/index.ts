@@ -9,12 +9,15 @@ import {
   nativeImage,
   dialog,
   session,
-  Notification
+  Notification,
+  net
 } from 'electron'
 import { join } from 'path'
 import fs from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+
+// ... (keep all the interfaces and default values from previous version)
 
 // Window state management
 interface WindowState {
@@ -471,6 +474,52 @@ ipcMain.handle('import-conversations', async (_, data) => {
   }
 })
 
+// CRITICAL FIX: API Proxy - Make API calls from main process to bypass CSP
+ipcMain.handle(
+  'kimi-api-request',
+  async (
+    _,
+    requestData: {
+      endpoint: string
+      apiKey: string
+      method: string
+      path: string
+      body?: any
+    }
+  ) => {
+    console.log('[API Proxy] Request to:', requestData.path)
+
+    try {
+      const url = `${requestData.endpoint}${requestData.path}`
+
+      // Use Electron's net module for HTTP requests
+      const response = await fetch(url, {
+        method: requestData.method,
+        headers: {
+          Authorization: `Bearer ${requestData.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: requestData.body ? JSON.stringify(requestData.body) : undefined
+      })
+
+      const data = await response.json()
+
+      return {
+        success: response.ok,
+        status: response.status,
+        data: data,
+        error: response.ok ? null : data.error?.message || `HTTP ${response.status}`
+      }
+    } catch (error) {
+      console.error('[API Proxy] Error:', error)
+      return {
+        success: false,
+        error: (error as Error).message
+      }
+    }
+  }
+)
+
 // API Key management
 ipcMain.handle('get-api-key', async () => {
   try {
@@ -546,14 +595,36 @@ app.whenReady().then(() => {
     app.disableHardwareAcceleration()
   }
 
-  // Security: Set CSP
+  // CRITICAL FIX: Updated CSP to allow Moonshot API
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    console.log('[CSP] Setting CSP for:', details.url)
+
+    // Define allowed sources
+    const defaultSrc = "'self' https://kimi.com https://*.kimi.com https://api.moonshot.cn"
+    const scriptSrc = "'self' 'unsafe-inline' https://kimi.com https://*.kimi.com"
+    const styleSrc = "'self' 'unsafe-inline' https://kimi.com https://*.kimi.com"
+    const imgSrc = "'self' data: blob: https:"
+    const fontSrc = "'self' https://kimi.com https://*.kimi.com"
+    const frameSrc = "'self' https://kimi.com"
+
+    // CRITICAL: connect-src must include the Moonshot API
+    const connectSrc =
+      "'self' https://kimi.com https://*.kimi.com wss://*.kimi.com https://api.moonshot.cn https://*.moonshot.cn"
+
+    const cspString = [
+      `default-src ${defaultSrc}`,
+      `script-src ${scriptSrc}`,
+      `style-src ${styleSrc}`,
+      `img-src ${imgSrc}`,
+      `connect-src ${connectSrc}`,
+      `font-src ${fontSrc}`,
+      `frame-src ${frameSrc}`
+    ].join('; ')
+
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': [
-          "default-src 'self' https://kimi.com https://*.kimi.com https://api.moonshot.cn; script-src 'self' 'unsafe-inline' https://kimi.com https://*.kimi.com; style-src 'self' 'unsafe-inline' https://kimi.com https://*.kimi.com; img-src 'self' data: blob: https:; connect-src 'self' https://kimi.com https://*.kimi.com wss://*.kimi.com https://api.moonshot.cn; font-src 'self' https://kimi.com https://*.kimi.com; frame-src 'self' https://kimi.com;"
-        ]
+        'Content-Security-Policy': [cspString]
       }
     })
   })

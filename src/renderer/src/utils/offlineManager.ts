@@ -6,7 +6,7 @@ export interface Conversation {
   messages: Message[]
   createdAt: number
   updatedAt: number
-  isOffline: boolean
+  isOffline: boolean | number // Changed to support both boolean and number (1/0)
 }
 
 export interface Message {
@@ -25,7 +25,7 @@ export interface Attachment {
 }
 
 const DB_NAME = 'KimiOfflineDB'
-const DB_VERSION = 1
+const DB_VERSION = 2 // Incremented to trigger schema update
 const STORE_NAME = 'conversations'
 
 class OfflineManager {
@@ -44,11 +44,20 @@ class OfflineManager {
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' })
-          store.createIndex('updatedAt', 'updatedAt', { unique: false })
-          store.createIndex('isOffline', 'isOffline', { unique: false })
+
+        // Delete old store if exists to recreate with proper schema
+        if (db.objectStoreNames.contains(STORE_NAME)) {
+          db.deleteObjectStore(STORE_NAME)
         }
+
+        // Create new store with proper indexes
+        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' })
+
+        // Index for updatedAt (number)
+        store.createIndex('updatedAt', 'updatedAt', { unique: false })
+
+        // Index for isOffline - use number (1/0) instead of boolean
+        store.createIndex('isOffline', 'isOffline', { unique: false })
       }
     })
   }
@@ -69,8 +78,10 @@ class OfflineManager {
       const tx = this.db!.transaction([STORE_NAME], 'readwrite')
       const store = tx.objectStore(STORE_NAME)
 
+      // Convert boolean to number for IndexedDB compatibility
       const data = {
         ...conversation,
+        isOffline: conversation.isOffline ? 1 : 0,
         updatedAt: Date.now()
       }
 
@@ -91,7 +102,14 @@ class OfflineManager {
       const store = tx.objectStore(STORE_NAME)
       const request = store.get(id)
 
-      request.onsuccess = () => resolve(request.result || null)
+      request.onsuccess = () => {
+        const result = request.result
+        if (result) {
+          // Convert number back to boolean
+          result.isOffline = !!result.isOffline
+        }
+        resolve(result || null)
+      }
       request.onerror = () => reject(request.error)
     })
   }
@@ -110,7 +128,10 @@ class OfflineManager {
       request.onsuccess = (event) => {
         const cursor = (event.target as IDBRequest).result
         if (cursor) {
-          conversations.push(cursor.value)
+          const data = cursor.value
+          // Convert number back to boolean
+          data.isOffline = !!data.isOffline
+          conversations.push(data)
           cursor.continue()
         } else {
           resolve(conversations)
@@ -121,6 +142,7 @@ class OfflineManager {
     })
   }
 
+  // CRITICAL FIX: Use number (1) instead of boolean (true) for IndexedDB query
   async getOfflineConversations(): Promise<Conversation[]> {
     if (!this.db) await this.init()
 
@@ -128,16 +150,23 @@ class OfflineManager {
       const tx = this.db!.transaction([STORE_NAME], 'readonly')
       const store = tx.objectStore(STORE_NAME)
       const index = store.index('isOffline')
-      const request = index.openCursor(IDBKeyRange.only(true))
+
+      // Use 1 instead of true for IndexedDB compatibility
+      const request = index.openCursor(IDBKeyRange.only(1))
 
       const conversations: Conversation[] = []
 
       request.onsuccess = (event) => {
         const cursor = (event.target as IDBRequest).result
         if (cursor) {
-          conversations.push(cursor.value)
+          const data = cursor.value
+          // Convert number back to boolean
+          data.isOffline = !!data.isOffline
+          conversations.push(data)
           cursor.continue()
         } else {
+          // Sort by updatedAt descending
+          conversations.sort((a, b) => b.updatedAt - a.updatedAt)
           resolve(conversations)
         }
       }

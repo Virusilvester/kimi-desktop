@@ -737,3 +737,66 @@
     width: 100%;
   }
 }
+
+/* API Endpoint Selector and Error Styles */
+
+.endpoint-select {
+  background: #222;
+  border: 1px solid #333;
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 14px;
+  width: 100%;
+  cursor: pointer;
+}
+
+.endpoint-select:focus {
+  outline: none;
+  border-color: #4caf50;
+}
+
+.endpoint-warning {
+  background: rgba(255, 152, 0, 0.1);
+  border: 1px solid rgba(255, 152, 0, 0.3);
+  color: #ff9800;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin: 16px 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.endpoint-warning a {
+  color: #4caf50;
+  text-decoration: none;
+}
+
+.endpoint-warning a:hover {
+  text-decoration: underline;
+}
+
+.api-error {
+  background: rgba(244, 67, 54, 0.1);
+  border: 1px solid rgba(244, 67, 54, 0.3);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 16px 0;
+}
+
+.api-error pre {
+  margin: 0;
+  color: #f44336;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+/* Endpoint selector option styling */
+.endpoint-select option {
+  background: #222;
+  color: #fff;
+  padding: 8px;
+}

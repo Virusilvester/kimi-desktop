@@ -165,6 +165,7 @@ export default function KimiWebView({
     }
   }, [])
 
+  // CRITICAL FIX: Use API proxy to bypass CSP restrictions
   const handleSendMessage = async () => {
     if (!inputValue.trim()) return
 
@@ -185,51 +186,50 @@ export default function KimiWebView({
     setIsGenerating(true)
 
     try {
-      // Try to use API if online
-      if (!isOffline && hasApiKey) {
-        const apiData = await window.api?.getApiKey?.()
-        if (apiData?.apiKey) {
-          const response = await fetch(`${apiData.endpoint}/chat/completions`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${apiData.apiKey}`
-            },
-            body: JSON.stringify({
-              model: 'moonshot-v1-8k',
-              messages: [
-                ...(currentConversation?.messages || []),
-                ...localMessages,
-                newMessage
-              ].map((m) => ({ role: m.role, content: m.content }))
-            })
-          })
+      // Get API credentials
+      const apiData = await window.api?.getApiKey?.()
+      if (!apiData?.apiKey) {
+        throw new Error('No API key available')
+      }
 
-          if (response.ok) {
-            const data = await response.json()
-            const assistantMessage: Message = {
-              id: (Date.now() + 1).toString(),
-              role: 'assistant',
-              content: data.choices[0].message.content,
-              timestamp: Date.now()
-            }
-            setLocalMessages((prev) => [...prev, assistantMessage])
-
-            // Save to offline storage
-            if (currentConversation) {
-              await offlineManager.saveConversation({
-                ...currentConversation,
-                messages: [
-                  ...currentConversation.messages,
-                  ...localMessages,
-                  newMessage,
-                  assistantMessage
-                ],
-                updatedAt: Date.now()
-              })
-            }
-          }
+      // CRITICAL: Use main process proxy to bypass CSP
+      const result = await window.api?.kimiApiRequest?.({
+        endpoint: apiData.endpoint,
+        apiKey: apiData.apiKey,
+        method: 'POST',
+        path: '/chat/completions',
+        body: {
+          model: 'moonshot-v1-8k',
+          messages: [...(currentConversation?.messages || []), ...localMessages, newMessage].map(
+            (m) => ({ role: m.role, content: m.content })
+          )
         }
+      })
+
+      if (result?.success) {
+        const assistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: result.data.choices[0].message.content,
+          timestamp: Date.now()
+        }
+        setLocalMessages((prev) => [...prev, assistantMessage])
+
+        // Save to offline storage
+        if (currentConversation) {
+          await offlineManager.saveConversation({
+            ...currentConversation,
+            messages: [
+              ...currentConversation.messages,
+              ...localMessages,
+              newMessage,
+              assistantMessage
+            ],
+            updatedAt: Date.now()
+          })
+        }
+      } else {
+        throw new Error(result?.error || 'API request failed')
       }
     } catch (error) {
       console.error('API call failed:', error)
@@ -237,8 +237,7 @@ export default function KimiWebView({
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content:
-          "Sorry, I cannot connect to the server. Your message has been saved and will be sent when you're back online.",
+        content: `Sorry, I cannot connect to the server: ${(error as Error).message}. Your message has been saved locally.`,
         timestamp: Date.now()
       }
       setLocalMessages((prev) => [...prev, errorMessage])
@@ -309,9 +308,7 @@ export default function KimiWebView({
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                placeholder={
-                  hasApiKey ? 'Type your message...' : 'Add API key in settings to chat offline'
-                }
+                placeholder={hasApiKey ? 'Type your message...' : 'Add API key in settings to chat'}
                 disabled={isGenerating}
               />
               <button
@@ -326,7 +323,7 @@ export default function KimiWebView({
             <div className="offline-notice">
               <p>
                 {hasApiKey
-                  ? "You're in offline mode. Messages will be queued and sent when you're back online."
+                  ? "You're in offline mode. Using API proxy to bypass CSP restrictions."
                   : 'Add your Kimi API key in settings to enable offline chat functionality.'}
               </p>
               <button className="btn-primary" onClick={handleRetry}>
@@ -410,12 +407,13 @@ export default function KimiWebView({
         </div>
       )}
 
+      {/* CRITICAL FIX: allowpopups must be string "true" not boolean */}
       <webview
         ref={webviewRef}
         src="https://kimi.com"
         className="kimi-webview"
         partition="persist:kimi"
-        allowpopups
+        allowpopups="true"
         webpreferences="contextIsolation=yes, nodeIntegration=no, allowRunningInsecureContent=no, javascript=yes, plugins=no, experimentalFeatures=no"
         useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 KimiDesktop/1.0"
       />

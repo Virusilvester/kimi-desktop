@@ -1,9 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-// NOTE: In sandboxed preload scripts, external packages like @electron-toolkit/preload
-// cannot be used via require/import. They must be bundled into the script.
-// This standalone version only uses Electron built-in modules.
-
 // Expose secure API to renderer
 contextBridge.exposeInMainWorld('api', {
   // Window controls
@@ -51,6 +47,9 @@ contextBridge.exposeInMainWorld('api', {
   // Conversation management
   exportConversations: () => ipcRenderer.invoke('export-conversations'),
   importConversations: (data) => ipcRenderer.invoke('import-conversations', data),
+
+  // CRITICAL FIX: API Proxy - Bypass CSP by making requests in main process
+  kimiApiRequest: (requestData) => ipcRenderer.invoke('kimi-api-request', requestData),
 
   // API Key management for offline mode
   getApiKey: () => ipcRenderer.invoke('get-api-key'),
