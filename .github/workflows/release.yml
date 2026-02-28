@@ -30,25 +30,32 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Required for snap
       - name: Install Snapcraft (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo snap install snapcraft --classic
+        run: sudo snap install snapcraft --classic
 
       # Windows code signing
       - name: Setup Windows Code Signing
         if: matrix.os == 'windows-latest'
-        run: |
-          echo "${{ secrets.WINDOWS_CERTIFICATE }}" | base64 --decode > cert.pfx
+        run: echo "${{ secrets.WINDOWS_CERTIFICATE }}" | base64 --decode > cert.pfx
         shell: bash
 
-      - name: Build & Release
+      # Build Linux
+      - name: Build Linux
+        if: matrix.os == 'ubuntu-latest'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Windows code signing
+        run: npm run build:linux
+
+      # Build Windows
+      - name: Build Windows
+        if: matrix.os == 'windows-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: npm run release
+        run: npm run build:win
 
       - name: Cleanup Windows Certificate
         if: matrix.os == 'windows-latest' && always()
@@ -66,5 +73,3 @@ jobs:
             dist/*.rpm
             dist/*.snap
             dist/*.zip
-            dist/*.tar.gz
-          retention-days: 5

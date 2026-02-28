@@ -70,9 +70,15 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
         }
       ],
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "${productName}-${version}-${os}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -92,10 +98,27 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "snap",
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "category": "Utility",
       "artifactName": "${productName}-${version}.${ext}"
+    },
+    "snap": {
+      "publish": [
+        "github"
+      ]
     }
   }
 }
