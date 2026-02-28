@@ -1,20 +1,37 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { Conversation, offlineManager, Message } from '../utils/offlineManager'
 import '../assets/KimiWebView.css'
 
 type ConnectionStatus = 'online' | 'offline' | 'checking' | 'error'
 
-export default function KimiWebView(): React.JSX.Element {
+interface KimiWebViewProps {
+  currentConversation: Conversation | null
+  isOffline: boolean
+  hasApiKey: boolean
+  onApiKeyRequired: () => void
+}
+
+export default function KimiWebView({
+  currentConversation,
+  isOffline,
+  hasApiKey,
+  onApiKeyRequired
+}: KimiWebViewProps): React.JSX.Element {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
     navigator.onLine ? 'online' : 'offline'
   )
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [retryCount, setRetryCount] = useState(0)
+  const [localMessages, setLocalMessages] = useState<Message[]>([])
+  const [inputValue, setInputValue] = useState('')
+  const [isGenerating, setIsGenerating] = useState(false)
   const webviewRef = useRef<Electron.WebviewTag>(null)
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const saveIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Network status monitoring with retry logic
+  // Network status monitoring
   useEffect(() => {
     const handleOnline = () => {
       setConnectionStatus('checking')
@@ -48,6 +65,31 @@ export default function KimiWebView(): React.JSX.Element {
       }
     }
   }, [connectionStatus])
+
+  // Auto-save conversations periodically
+  useEffect(() => {
+    if (!currentConversation) return
+
+    saveIntervalRef.current = setInterval(async () => {
+      if (
+        currentConversation &&
+        (currentConversation.messages.length > 0 || localMessages.length > 0)
+      ) {
+        await offlineManager.saveConversation({
+          ...currentConversation,
+          messages: [...currentConversation.messages, ...localMessages],
+          isOffline: true,
+          updatedAt: Date.now()
+        })
+      }
+    }, 30000)
+
+    return () => {
+      if (saveIntervalRef.current) {
+        clearInterval(saveIntervalRef.current)
+      }
+    }
+  }, [currentConversation, localMessages])
 
   // Handle webview load events
   useEffect(() => {
@@ -85,7 +127,6 @@ export default function KimiWebView(): React.JSX.Element {
       }
     }
 
-    // IMPORTANT: Delay to ensure webview is fully created
     const timer = setTimeout(() => {
       webview.addEventListener('did-finish-load', handleDidFinishLoad)
       webview.addEventListener('did-fail-load', handleDidFailLoad as EventListener)
@@ -100,18 +141,18 @@ export default function KimiWebView(): React.JSX.Element {
     }
   }, [retryCount])
 
-  // Handle navigation from main process (deep linking)
+  // Handle navigation from main process
   useEffect(() => {
     const handleNavigate = (path: string) => {
       const webview = webviewRef.current
-      if (webview) {
+      if (webview && path !== 'settings') {
         const url = path.startsWith('http') ? path : `https://kimi.com${path}`
         webview.src = url
       }
     }
 
-    const unsubscribe = window.api?.onNavigateTo?.(handleNavigate) ?? undefined
-    return unsubscribe
+    const unsubscribe = window.api?.onNavigateTo?.(handleNavigate)
+    return () => unsubscribe?.()
   }, [])
 
   const handleRetry = useCallback(() => {
@@ -124,34 +165,208 @@ export default function KimiWebView(): React.JSX.Element {
     }
   }, [])
 
-  // Offline UI
-  if (connectionStatus === 'offline') {
+  const handleSendMessage = async () => {
+    if (!inputValue.trim()) return
+
+    if (!hasApiKey) {
+      onApiKeyRequired()
+      return
+    }
+
+    const newMessage: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: inputValue,
+      timestamp: Date.now()
+    }
+
+    setLocalMessages((prev) => [...prev, newMessage])
+    setInputValue('')
+    setIsGenerating(true)
+
+    try {
+      // Try to use API if online
+      if (!isOffline && hasApiKey) {
+        const apiData = await window.api?.getApiKey?.()
+        if (apiData?.apiKey) {
+          const response = await fetch(`${apiData.endpoint}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiData.apiKey}`
+            },
+            body: JSON.stringify({
+              model: 'moonshot-v1-8k',
+              messages: [
+                ...(currentConversation?.messages || []),
+                ...localMessages,
+                newMessage
+              ].map((m) => ({ role: m.role, content: m.content }))
+            })
+          })
+
+          if (response.ok) {
+            const data = await response.json()
+            const assistantMessage: Message = {
+              id: (Date.now() + 1).toString(),
+              role: 'assistant',
+              content: data.choices[0].message.content,
+              timestamp: Date.now()
+            }
+            setLocalMessages((prev) => [...prev, assistantMessage])
+
+            // Save to offline storage
+            if (currentConversation) {
+              await offlineManager.saveConversation({
+                ...currentConversation,
+                messages: [
+                  ...currentConversation.messages,
+                  ...localMessages,
+                  newMessage,
+                  assistantMessage
+                ],
+                updatedAt: Date.now()
+              })
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('API call failed:', error)
+      // Add error message
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content:
+          "Sorry, I cannot connect to the server. Your message has been saved and will be sent when you're back online.",
+        timestamp: Date.now()
+      }
+      setLocalMessages((prev) => [...prev, errorMessage])
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  // Offline view with conversation
+  if (isOffline || connectionStatus === 'offline') {
     return (
-      <div className="offline-container">
-        <div className="offline-content">
-          <div className="offline-icon">📡</div>
-          <h2>You&apos;re Offline</h2>
-          <p>Kimi requires an internet connection to work.</p>
-          <p className="offline-subtext">Please check your connection and try again.</p>
+      <div className="webview-container">
+        {currentConversation || localMessages.length > 0 ? (
+          <div className="offline-chat-view">
+            <div className="offline-header">
+              <h2>{currentConversation?.title || 'Offline Chat'}</h2>
+              <div className="offline-badges">
+                <span className="offline-badge">Offline Mode</span>
+                {hasApiKey && <span className="api-ready">API Ready</span>}
+              </div>
+            </div>
 
-          <div className="offline-actions">
-            <button className="btn-primary" onClick={handleRetry}>
-              Try Again
-            </button>
-            <button className="btn-secondary" onClick={() => window.api?.restartApp()}>
-              Restart App
-            </button>
-          </div>
+            <div className="messages-container">
+              {(currentConversation?.messages || []).map((msg) => (
+                <div key={msg.id} className={`message ${msg.role}`}>
+                  <div className="message-avatar">{msg.role === 'user' ? '👤' : '🤖'}</div>
+                  <div className="message-content">
+                    <div className="message-text">{msg.content}</div>
+                    <div className="message-time">
+                      {new Date(msg.timestamp).toLocaleTimeString()}
+                    </div>
+                  </div>
+                </div>
+              ))}
 
-          <div className="offline-tips">
-            <h4>Troubleshooting Tips:</h4>
-            <ul>
-              <li>Check your Wi-Fi or Ethernet connection</li>
-              <li>Disable VPN or proxy temporarily</li>
-              <li>Check if kimi.com is accessible in your browser</li>
-            </ul>
+              {localMessages.map((msg) => (
+                <div key={msg.id} className={`message ${msg.role}`}>
+                  <div className="message-avatar">{msg.role === 'user' ? '👤' : '🤖'}</div>
+                  <div className="message-content">
+                    <div className="message-text">{msg.content}</div>
+                    <div className="message-time">
+                      {new Date(msg.timestamp).toLocaleTimeString()}
+                      {msg.role === 'user' && isOffline && (
+                        <span className="pending"> (pending)</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {isGenerating && (
+                <div className="message assistant">
+                  <div className="message-avatar">🤖</div>
+                  <div className="message-content">
+                    <div className="typing-indicator">
+                      <span></span>
+                      <span></span>
+                      <span></span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="input-area">
+              <input
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                placeholder={
+                  hasApiKey ? 'Type your message...' : 'Add API key in settings to chat offline'
+                }
+                disabled={isGenerating}
+              />
+              <button
+                onClick={handleSendMessage}
+                disabled={!inputValue.trim() || isGenerating || !hasApiKey}
+                className="send-btn"
+              >
+                {isGenerating ? '⏳' : '➤'}
+              </button>
+            </div>
+
+            <div className="offline-notice">
+              <p>
+                {hasApiKey
+                  ? "You're in offline mode. Messages will be queued and sent when you're back online."
+                  : 'Add your Kimi API key in settings to enable offline chat functionality.'}
+              </p>
+              <button className="btn-primary" onClick={handleRetry}>
+                🔄 Try Reconnecting
+              </button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="offline-container">
+            <div className="offline-content">
+              <div className="offline-icon">📡</div>
+              <h2>You're Offline</h2>
+              <p>Kimi requires an internet connection for new conversations.</p>
+              <p className="offline-subtext">
+                {hasApiKey
+                  ? 'You can still view saved conversations or add a new message that will be sent later.'
+                  : 'Add your API key in settings to enable offline chat functionality.'}
+              </p>
+
+              <div className="offline-actions">
+                <button className="btn-primary" onClick={handleRetry}>
+                  Try Again
+                </button>
+                <button className="btn-secondary" onClick={() => window.api?.restartApp?.()}>
+                  Restart App
+                </button>
+              </div>
+
+              <div className="offline-tips">
+                <h4>Troubleshooting Tips:</h4>
+                <ul>
+                  <li>Check your Wi-Fi or Ethernet connection</li>
+                  <li>Disable VPN or proxy temporarily</li>
+                  <li>Check if kimi.com is accessible in your browser</li>
+                  {hasApiKey && <li>Your API key is saved and ready for when you reconnect</li>}
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -170,7 +385,7 @@ export default function KimiWebView(): React.JSX.Element {
             <button className="btn-primary" onClick={handleRetry}>
               Reload Page
             </button>
-            <button className="btn-secondary" onClick={() => window.api?.restartApp()}>
+            <button className="btn-secondary" onClick={() => window.api?.restartApp?.()}>
               Restart App
             </button>
           </div>
@@ -181,7 +396,6 @@ export default function KimiWebView(): React.JSX.Element {
 
   return (
     <div className="webview-container">
-      {/* Loading overlay */}
       {isLoading && (
         <div className="loading-overlay">
           <div className="loading-spinner">
@@ -196,14 +410,6 @@ export default function KimiWebView(): React.JSX.Element {
         </div>
       )}
 
-      {/* 
-        CRITICAL FIXES:
-        1. partition="persist:kimi" - persistent session for cookies/storage
-        2. allowpopups - allow popups (boolean)
-        3. webpreferences - comma-separated format with yes/no values
-        4. Removed sandbox=yes (incompatible with contextIsolation)
-      */}
-      {/* eslint-disable react/no-unknown-property */}
       <webview
         ref={webviewRef}
         src="https://kimi.com"
@@ -213,7 +419,6 @@ export default function KimiWebView(): React.JSX.Element {
         webpreferences="contextIsolation=yes, nodeIntegration=no, allowRunningInsecureContent=no, javascript=yes, plugins=no, experimentalFeatures=no"
         useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 KimiDesktop/1.0"
       />
-      {/* eslint-enable react/no-unknown-property */}
     </div>
   )
 }

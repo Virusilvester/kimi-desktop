@@ -1,43 +1,83 @@
 .titlebar {
-  height: 38px;
-  background: linear-gradient(180deg, #2d2d2d 0%, #1a1a1a 100%);
+  height: 32px;
+  background: #1a1a1a;
   display: flex;
   align-items: center;
   justify-content: space-between;
   -webkit-app-region: drag;
   user-select: none;
-  border-bottom: 1px solid #000;
+  border-bottom: 1px solid #333;
 }
 
 .titlebar-drag-region {
+  flex: 1;
   display: flex;
   align-items: center;
-  flex: 1;
   height: 100%;
-  padding-left: 12px;
-  gap: 8px;
+  -webkit-app-region: drag;
+}
+
+.app-menu {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  height: 100%;
+}
+
+.menu-btn {
+  -webkit-app-region: no-drag;
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.menu-btn:hover {
+  background: #333;
+  color: #fff;
 }
 
 .app-icon {
   display: flex;
   align-items: center;
-  justify-content: center;
 }
 
 .title {
   color: #fff;
   font-size: 13px;
   font-weight: 500;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .version {
   color: #666;
   font-size: 11px;
-  font-weight: 400;
+  font-weight: normal;
+}
+
+.offline-indicator {
+  background: #ff9800;
+  color: #000;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
 .window-controls {
@@ -49,18 +89,18 @@
 .window-btn {
   width: 46px;
   height: 100%;
+  background: none;
   border: none;
-  background: transparent;
-  color: #ccc;
+  color: #888;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.2s;
 }
 
 .window-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: #333;
   color: #fff;
 }
 
@@ -69,10 +109,14 @@
   color: #fff;
 }
 
-.window-btn:active {
-  opacity: 0.8;
+.window-btn.menu-settings:hover {
+  background: #4caf50;
+  color: #fff;
 }
 
-.window-btn svg {
-  pointer-events: none;
+/* Dark theme adjustments */
+@media (prefers-color-scheme: dark) {
+  .titlebar {
+    background: #1a1a1a;
+  }
 }

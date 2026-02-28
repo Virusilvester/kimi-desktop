@@ -8,7 +8,8 @@ import {
   Menu,
   nativeImage,
   dialog,
-  session
+  session,
+  Notification
 } from 'electron'
 import { join } from 'path'
 import fs from 'fs'
@@ -24,6 +25,25 @@ interface WindowState {
   isMaximized: boolean
 }
 
+// Settings interface
+interface AppSettings {
+  offlineMode: boolean
+  autoSaveConversations: boolean
+  saveHistory: boolean
+  maxHistoryDays: number
+  launchOnStartup: boolean
+  minimizeToTray: boolean
+  desktopNotifications: boolean
+  theme: 'system' | 'light' | 'dark'
+  fontSize: 'small' | 'medium' | 'large'
+  spellCheck: boolean
+  hardwareAcceleration: boolean
+  cacheSize: number
+  kimiApiKey?: string
+  kimiApiEndpoint?: string
+}
+
+// Global window reference - MUST be global to prevent GC
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuiting = false
@@ -36,10 +56,42 @@ const defaultWindowState: WindowState = {
   isMaximized: false
 }
 
+// Default settings
+const defaultSettings: AppSettings = {
+  offlineMode: true,
+  autoSaveConversations: true,
+  saveHistory: true,
+  maxHistoryDays: 30,
+  launchOnStartup: false,
+  minimizeToTray: true,
+  desktopNotifications: true,
+  theme: 'system',
+  fontSize: 'medium',
+  spellCheck: true,
+  hardwareAcceleration: true,
+  cacheSize: 0,
+  kimiApiKey: '',
+  kimiApiEndpoint: 'https://api.moonshot.cn/v1'
+}
+
+// Get paths
 function getWindowStatePath(): string {
   return join(app.getPath('userData'), 'window-state.json')
 }
 
+function getSettingsPath(): string {
+  return join(app.getPath('userData'), 'settings.json')
+}
+
+function getConversationsPath(): string {
+  return join(app.getPath('userData'), 'conversations.json')
+}
+
+function getApiKeyPath(): string {
+  return join(app.getPath('userData'), 'api-key.enc')
+}
+
+// Read saved window state
 function readSavedWindowState(): Partial<WindowState> | null {
   try {
     const path = getWindowStatePath()
@@ -89,8 +141,42 @@ function scheduleSaveWindowState() {
   }, 250)
 }
 
+// Settings management
+function loadSettings(): AppSettings {
+  try {
+    const path = getSettingsPath()
+    if (!fs.existsSync(path)) return defaultSettings
+    const contents = fs.readFileSync(path, 'utf-8')
+    return { ...defaultSettings, ...JSON.parse(contents) }
+  } catch {
+    return defaultSettings
+  }
+}
+
+function saveSettingsToFile(settings: AppSettings) {
+  try {
+    fs.writeFileSync(getSettingsPath(), JSON.stringify(settings, null, 2), 'utf-8')
+
+    // Apply startup setting
+    app.setLoginItemSettings({
+      openAtLogin: settings.launchOnStartup,
+      path: app.getPath('exe')
+    })
+  } catch {
+    // Ignore persistence errors
+  }
+}
+
+// Create main window
 function createWindow(): void {
   const windowState = getWindowState()
+  const settings = loadSettings()
+
+  // CRITICAL: Get correct preload path based on environment
+  const preloadPath = join(__dirname, '../preload/index.js')
+
+  console.log('[Main] Creating window with preload:', preloadPath)
+  console.log('[Main] __dirname:', __dirname)
 
   mainWindow = new BrowserWindow({
     width: windowState.width,
@@ -105,13 +191,14 @@ function createWindow(): void {
     show: false,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
       webviewTag: true,
       sandbox: true,
       allowRunningInsecureContent: false,
-      experimentalFeatures: false
+      experimentalFeatures: false,
+      spellcheck: settings.spellCheck
     }
   })
 
@@ -123,6 +210,7 @@ function createWindow(): void {
   /* ---------- WINDOW EVENTS ---------- */
 
   mainWindow.on('ready-to-show', () => {
+    console.log('[Main] Window ready to show')
     mainWindow?.show()
     mainWindow?.focus()
   })
@@ -160,17 +248,18 @@ function createWindow(): void {
     scheduleSaveWindowState()
   })
 
-  /* ---------- FIXED: Use setWindowOpenHandler instead of deprecated 'new-window' event ---------- */
-
-  // Handle external links and prevent new windows
+  /* ---------- EXTERNAL LINKS HANDLING ---------- */
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    // Open external URLs in default browser
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
-  /* ---------- LOAD URL ---------- */
+  // Log preload errors
+  mainWindow.webContents.on('preload-error', (event, preloadPath, error) => {
+    console.error('[Main] Preload error:', preloadPath, error)
+  })
 
+  /* ---------- LOAD URL ---------- */
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
@@ -178,6 +267,7 @@ function createWindow(): void {
   }
 }
 
+// Create tray
 function createTray() {
   const trayIcon = nativeImage.createFromPath(icon).resize({ width: 16, height: 16 })
   tray = new Tray(trayIcon)
@@ -195,6 +285,14 @@ function createTray() {
       click: () => {
         mainWindow?.show()
         mainWindow?.webContents.send('navigate-to', '/')
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Settings',
+      click: () => {
+        mainWindow?.show()
+        mainWindow?.webContents.send('open-settings')
       }
     },
     { type: 'separator' },
@@ -222,21 +320,29 @@ function createTray() {
 
 /* ---------- IPC HANDLERS ---------- */
 
+// Window controls - FIXED: Use proper window reference
 ipcMain.on('minimize', () => {
-  mainWindow?.minimize()
+  console.log('[IPC] minimize received')
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.minimize()
+  }
 })
 
 ipcMain.on('maximize', () => {
-  if (!mainWindow) return
-  if (mainWindow.isMaximized()) {
-    mainWindow.unmaximize()
-  } else {
-    mainWindow.maximize()
+  console.log('[IPC] maximize received')
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize()
+    } else {
+      mainWindow.maximize()
+    }
   }
 })
 
 ipcMain.on('close', () => {
-  if (process.platform === 'darwin') {
+  console.log('[IPC] close received')
+  const settings = loadSettings()
+  if (process.platform === 'darwin' || settings.minimizeToTray) {
     mainWindow?.hide()
   } else {
     mainWindow?.close()
@@ -248,9 +354,9 @@ ipcMain.on('restart-app', () => {
   app.exit(0)
 })
 
-// Check for updates (placeholder - integrate with electron-updater)
+// Check for updates
 ipcMain.handle('check-for-updates', async () => {
-  return { updateAvailable: false }
+  return { updateAvailable: false, version: app.getVersion() }
 })
 
 // Get app version
@@ -258,11 +364,155 @@ ipcMain.handle('get-app-version', () => {
   return app.getVersion()
 })
 
-// Show save dialog for downloads
+// Dialogs
 ipcMain.handle('show-save-dialog', async (_, options) => {
-  if (!mainWindow) return { canceled: true }
+  if (!mainWindow || mainWindow.isDestroyed()) return { canceled: true }
   const result = await dialog.showSaveDialog(mainWindow, options)
   return result
+})
+
+ipcMain.handle('show-open-dialog', async (_, options) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return { canceled: true }
+  const result = await dialog.showOpenDialog(mainWindow, options)
+  return result
+})
+
+// Settings IPC handlers - FIXED: Proper async handlers
+ipcMain.handle('get-settings', async () => {
+  console.log('[IPC] get-settings called')
+  return loadSettings()
+})
+
+ipcMain.handle('save-settings', async (_, settings: AppSettings) => {
+  console.log('[IPC] save-settings called', settings)
+  saveSettingsToFile(settings)
+
+  // Apply settings that need immediate effect
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.session.setSpellCheckerEnabled(settings.spellCheck)
+  }
+  return { success: true }
+})
+
+// Clear data handlers
+ipcMain.handle('clear-data', async (_, type: 'all' | 'cache' | 'history' | 'cookies') => {
+  console.log('[IPC] clear-data called', type)
+  if (!mainWindow || mainWindow.isDestroyed()) return { success: false, error: 'No window' }
+
+  const ses = mainWindow.webContents.session
+
+  try {
+    switch (type) {
+      case 'cache':
+        await ses.clearCache()
+        await ses.clearCodeCaches({})
+        break
+      case 'cookies':
+        await ses.clearStorageData({ storages: ['cookies', 'localstorage', 'sessionstorage'] })
+        break
+      case 'history':
+        // Clear conversations file
+        try {
+          const convPath = getConversationsPath()
+          if (fs.existsSync(convPath)) {
+            fs.unlinkSync(convPath)
+          }
+        } catch (error) {
+          console.error('Failed to clear conversations:', error)
+        }
+        await ses.clearStorageData({ storages: ['indexeddb'] })
+        break
+      case 'all':
+        await ses.clearStorageData()
+        await ses.clearCache()
+        await ses.clearCodeCaches({})
+        await ses.clearAuthCache()
+        // Clear settings
+        try {
+          const settingsPath = getSettingsPath()
+          if (fs.existsSync(settingsPath)) {
+            fs.unlinkSync(settingsPath)
+          }
+          const convPath = getConversationsPath()
+          if (fs.existsSync(convPath)) {
+            fs.unlinkSync(convPath)
+          }
+        } catch (error) {
+          console.error('Failed to clear files:', error)
+        }
+        break
+    }
+    return { success: true }
+  } catch (error) {
+    console.error('Error clearing data:', error)
+    return { success: false, error: String(error) }
+  }
+})
+
+// Conversation export/import
+ipcMain.handle('export-conversations', async () => {
+  try {
+    const convPath = getConversationsPath()
+    if (!fs.existsSync(convPath)) return []
+    const data = fs.readFileSync(convPath, 'utf-8')
+    return JSON.parse(data)
+  } catch {
+    return []
+  }
+})
+
+ipcMain.handle('import-conversations', async (_, data) => {
+  try {
+    const convPath = getConversationsPath()
+    fs.writeFileSync(convPath, JSON.stringify(data, null, 2), 'utf-8')
+    return { success: true }
+  } catch (error) {
+    throw error
+  }
+})
+
+// API Key management
+ipcMain.handle('get-api-key', async () => {
+  try {
+    const keyPath = getApiKeyPath()
+    if (!fs.existsSync(keyPath)) return { apiKey: '', endpoint: defaultSettings.kimiApiEndpoint }
+    const encrypted = fs.readFileSync(keyPath, 'utf-8')
+    // Simple obfuscation - in production use proper encryption
+    const decrypted = Buffer.from(encrypted, 'base64').toString('utf-8')
+    const data = JSON.parse(decrypted)
+    return data
+  } catch {
+    return { apiKey: '', endpoint: defaultSettings.kimiApiEndpoint }
+  }
+})
+
+ipcMain.handle('save-api-key', async (_, apiKey: string, endpoint: string) => {
+  try {
+    const keyPath = getApiKeyPath()
+    // Simple obfuscation - in production use proper encryption
+    const data = JSON.stringify({ apiKey, endpoint, savedAt: Date.now() })
+    const encrypted = Buffer.from(data).toString('base64')
+    fs.writeFileSync(keyPath, encrypted, 'utf-8')
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: String(error) }
+  }
+})
+
+// Notification handler
+ipcMain.handle('show-notification', (_, options: { title: string; body: string }) => {
+  if (Notification.isSupported()) {
+    new Notification({
+      title: options.title,
+      body: options.body,
+      icon: icon
+    }).show()
+  }
+})
+
+// Developer tools
+ipcMain.on('open-dev-tools', () => {
+  mainWindow?.webContents.openDevTools()
 })
 
 // Handle protocol URLs (deep linking)
@@ -278,6 +528,7 @@ app.on('open-url', (event, url) => {
 /* ---------- APP READY ---------- */
 
 app.whenReady().then(() => {
+  console.log('[Main] App ready')
   electronApp.setAppUserModelId('com.kimi.desktop')
 
   // Set up protocol handler
@@ -289,13 +540,19 @@ app.whenReady().then(() => {
     app.setAsDefaultProtocolClient('kimi')
   }
 
+  // Apply hardware acceleration setting
+  const settings = loadSettings()
+  if (!settings.hardwareAcceleration) {
+    app.disableHardwareAcceleration()
+  }
+
   // Security: Set CSP
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
-          "default-src 'self' https://kimi.com https://*.kimi.com; script-src 'self' 'unsafe-inline' https://kimi.com https://*.kimi.com; style-src 'self' 'unsafe-inline' https://kimi.com https://*.kimi.com; img-src 'self' data: blob: https:; connect-src 'self' https://kimi.com https://*.kimi.com wss://*.kimi.com; font-src 'self' https://kimi.com https://*.kimi.com; frame-src 'self' https://kimi.com;"
+          "default-src 'self' https://kimi.com https://*.kimi.com https://api.moonshot.cn; script-src 'self' 'unsafe-inline' https://kimi.com https://*.kimi.com; style-src 'self' 'unsafe-inline' https://kimi.com https://*.kimi.com; img-src 'self' data: blob: https:; connect-src 'self' https://kimi.com https://*.kimi.com wss://*.kimi.com https://api.moonshot.cn; font-src 'self' https://kimi.com https://*.kimi.com; frame-src 'self' https://kimi.com;"
         ]
       }
     })
@@ -303,7 +560,6 @@ app.whenReady().then(() => {
 
   // Global handler for all webContents (including webviews)
   app.on('web-contents-created', (_, contents) => {
-    // Set window open handler for all web contents
     contents.setWindowOpenHandler((details) => {
       shell.openExternal(details.url)
       return { action: 'deny' }
@@ -316,6 +572,12 @@ app.whenReady().then(() => {
 
   createWindow()
   createTray()
+
+  // Apply startup setting
+  app.setLoginItemSettings({
+    openAtLogin: settings.launchOnStartup,
+    path: app.getPath('exe')
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

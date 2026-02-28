@@ -1,7 +1,10 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
-import { Component, ReactNode } from 'react'
+import { Component, ReactNode, useState, useEffect, useCallback } from 'react'
 import KimiWebView from './components/KimiWebView'
 import TitleBar from './components/TitleBar'
+import Settings from './components/Settings'
+import ConversationSidebar from './components/ConversationSidebar'
+import { Conversation, offlineManager } from './utils/offlineManager'
 
 // Error Boundary for catching React errors
 class ErrorBoundary extends Component<
@@ -65,6 +68,65 @@ class ErrorBoundary extends Component<
 }
 
 function App(): React.JSX.Element {
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null)
+  const [isOffline, setIsOffline] = useState(!navigator.onLine)
+  const [hasApiKey, setHasApiKey] = useState(false)
+
+  useEffect(() => {
+    // Initialize offline manager
+    offlineManager.init().catch(console.error)
+
+    // Check for API key
+    checkApiKey()
+
+    // Listen for settings shortcut from main process
+    const unsubscribeSettings = window.api?.onOpenSettings?.(() => {
+      setIsSettingsOpen(true)
+    })
+
+    const unsubscribeNavigate = window.api?.onNavigateTo?.((path) => {
+      if (path === 'settings') setIsSettingsOpen(true)
+    })
+
+    // Network status
+    const handleOnline = () => setIsOffline(false)
+    const handleOffline = () => setIsOffline(true)
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+      unsubscribeSettings?.()
+      unsubscribeNavigate?.()
+    }
+  }, [])
+
+  const checkApiKey = async () => {
+    try {
+      const apiData = await window.api?.getApiKey?.()
+      setHasApiKey(!!apiData?.apiKey)
+    } catch (error) {
+      console.error('Failed to check API key:', error)
+    }
+  }
+
+  const handleSelectConversation = useCallback((conversation: Conversation) => {
+    setCurrentConversation(conversation)
+  }, [])
+
+  const handleNewConversation = useCallback(() => {
+    setCurrentConversation(null)
+    // Navigate to new chat in webview
+    const webview = document.querySelector('webview') as Electron.WebviewTag | null
+    if (webview) {
+      webview.src = 'https://kimi.com'
+    }
+  }, [])
+
   return (
     <ErrorBoundary>
       <div
@@ -77,10 +139,38 @@ function App(): React.JSX.Element {
           background: '#111'
         }}
       >
-        <TitleBar />
-        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-          <KimiWebView />
+        <TitleBar
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenSidebar={() => setIsSidebarOpen(true)}
+          isOffline={isOffline}
+          hasApiKey={hasApiKey}
+        />
+
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex' }}>
+          <ConversationSidebar
+            isOpen={isSidebarOpen}
+            onClose={() => setIsSidebarOpen(false)}
+            onSelectConversation={handleSelectConversation}
+            currentConversationId={currentConversation?.id}
+          />
+
+          <div style={{ flex: 1, position: 'relative' }}>
+            <KimiWebView
+              currentConversation={currentConversation}
+              isOffline={isOffline}
+              hasApiKey={hasApiKey}
+              onApiKeyRequired={() => setIsSettingsOpen(true)}
+            />
+          </div>
         </div>
+
+        <Settings
+          isOpen={isSettingsOpen}
+          onClose={() => {
+            setIsSettingsOpen(false)
+            checkApiKey() // Refresh API key status
+          }}
+        />
       </div>
     </ErrorBoundary>
   )
