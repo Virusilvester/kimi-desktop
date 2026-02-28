@@ -240,11 +240,18 @@ class OfflineManager {
 export const offlineManager = new OfflineManager()
 
 // React Hook for using offline manager
-export function useOfflineConversations() {
+export function useOfflineConversations(options?: { enabled?: boolean }): {
+  conversations: Conversation[]
+  isLoading: boolean
+  refresh: () => Promise<void>
+  saveConversation: (conversation: Conversation) => Promise<void>
+  deleteConversation: (id: string) => Promise<void>
+} {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const enabled = options?.enabled ?? true
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<void> => {
     try {
       const data = await offlineManager.getAllConversations()
       setConversations(data)
@@ -256,16 +263,18 @@ export function useOfflineConversations() {
   }, [])
 
   useEffect(() => {
+    if (!enabled) return
+    setIsLoading(true)
     refresh()
     const unsubscribe = offlineManager.subscribe(refresh)
     return unsubscribe
-  }, [refresh])
+  }, [enabled, refresh])
 
-  const saveConversation = useCallback(async (conversation: Conversation) => {
+  const saveConversation = useCallback(async (conversation: Conversation): Promise<void> => {
     await offlineManager.saveConversation(conversation)
   }, [])
 
-  const deleteConversation = useCallback(async (id: string) => {
+  const deleteConversation = useCallback(async (id: string): Promise<void> => {
     await offlineManager.deleteConversation(id)
   }, [])
 

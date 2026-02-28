@@ -68,7 +68,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
     }
   }, [isOpen])
 
-  const loadData = async () => {
+  const loadData = async (): Promise<void> => {
     setIsLoading(true)
     setApiError(null)
     try {
@@ -93,7 +93,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
     }
   }
 
-  const loadStorageInfo = async () => {
+  const loadStorageInfo = async (): Promise<void> => {
     try {
       if ('storage' in navigator && 'estimate' in navigator.storage) {
         const estimate = await navigator.storage.estimate()
@@ -107,7 +107,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
     }
   }
 
-  const saveSettings = useCallback(async (newSettings: AppSettings) => {
+  const saveSettings = useCallback(async (newSettings: AppSettings): Promise<void> => {
     setSaveStatus('saving')
     try {
       const result = await window.api?.saveSettings?.(newSettings)
@@ -127,13 +127,13 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
   const handleSettingChange = async <K extends keyof AppSettings>(
     key: K,
     value: AppSettings[K]
-  ) => {
+  ): Promise<void> => {
     const newSettings = { ...settings, [key]: value }
     setSettings(newSettings) // Optimistic update
     await saveSettings(newSettings)
   }
 
-  const handleSaveApiKey = async () => {
+  const handleSaveApiKey = async (): Promise<void> => {
     setSaveStatus('saving')
     setApiError(null)
     try {
@@ -152,7 +152,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
     }
   }
 
-  const handleClearData = async () => {
+  const handleClearData = async (): Promise<void> => {
     setIsClearing(true)
     try {
       const result = await window.api?.clearData?.(clearType)
@@ -186,7 +186,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
   }
 
-  const exportConversations = async () => {
+  const exportConversations = async (): Promise<void> => {
     try {
       const data = await window.api?.exportConversations?.()
       if (data) {
@@ -204,7 +204,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
     }
   }
 
-  const importConversations = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const importConversations = async (event: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
     const file = event.target.files?.[0]
     if (!file) return
 
@@ -230,7 +230,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
   }
 
   // CRITICAL FIX: Use API proxy instead of direct fetch to bypass CSP
-  const testApiConnection = async () => {
+  const testApiConnection = async (): Promise<void> => {
     if (!apiConfig.apiKey) {
       setApiError('Please enter an API key first')
       return
@@ -520,11 +520,11 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
 
                   <div className="endpoint-warning">
                     <strong>⚠️ Important:</strong> API keys from{' '}
-                    <a href="https://platform.moonshot.cn" target="_blank">
+                    <a href="https://platform.moonshot.cn" target="_blank" rel="noreferrer">
                       platform.moonshot.cn
                     </a>{' '}
                     and{' '}
-                    <a href="https://platform.moonshot.ai" target="_blank">
+                    <a href="https://platform.moonshot.ai" target="_blank" rel="noreferrer">
                       platform.moonshot.ai
                     </a>{' '}
                     are completely separate. Make sure you select the correct region for your key.

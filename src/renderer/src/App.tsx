@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/explicit-function-return-type */
 import { Component, ReactNode, useState, useEffect, useCallback } from 'react'
 import KimiWebView from './components/KimiWebView'
 import TitleBar from './components/TitleBar'
@@ -16,15 +15,15 @@ class ErrorBoundary extends Component<
     this.state = { hasError: false, error: null }
   }
 
-  static getDerivedStateFromError(error: Error) {
+  static getDerivedStateFromError(error: Error): { hasError: boolean; error: Error } {
     return { hasError: true, error }
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
     console.error('App Error:', error, errorInfo)
   }
 
-  render() {
+  render(): ReactNode {
     if (this.state.hasError) {
       return (
         <div
@@ -74,12 +73,21 @@ function App(): React.JSX.Element {
   const [isOffline, setIsOffline] = useState(!navigator.onLine)
   const [hasApiKey, setHasApiKey] = useState(false)
 
+  const checkApiKey = useCallback(async (): Promise<void> => {
+    try {
+      const apiData = await window.api?.getApiKey?.()
+      setHasApiKey(!!apiData?.apiKey)
+    } catch (error) {
+      console.error('Failed to check API key:', error)
+    }
+  }, [])
+
   useEffect(() => {
     // Initialize offline manager
     offlineManager.init().catch(console.error)
 
     // Check for API key
-    checkApiKey()
+    void checkApiKey()
 
     // Listen for settings shortcut from main process
     const unsubscribeSettings = window.api?.onOpenSettings?.(() => {
@@ -91,8 +99,8 @@ function App(): React.JSX.Element {
     })
 
     // Network status
-    const handleOnline = () => setIsOffline(false)
-    const handleOffline = () => setIsOffline(true)
+    const handleOnline = (): void => setIsOffline(false)
+    const handleOffline = (): void => setIsOffline(true)
 
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
@@ -103,28 +111,10 @@ function App(): React.JSX.Element {
       unsubscribeSettings?.()
       unsubscribeNavigate?.()
     }
-  }, [])
-
-  const checkApiKey = async () => {
-    try {
-      const apiData = await window.api?.getApiKey?.()
-      setHasApiKey(!!apiData?.apiKey)
-    } catch (error) {
-      console.error('Failed to check API key:', error)
-    }
-  }
+  }, [checkApiKey])
 
   const handleSelectConversation = useCallback((conversation: Conversation) => {
     setCurrentConversation(conversation)
-  }, [])
-
-  const handleNewConversation = useCallback(() => {
-    setCurrentConversation(null)
-    // Navigate to new chat in webview
-    const webview = document.querySelector('webview') as Electron.WebviewTag | null
-    if (webview) {
-      webview.src = 'https://kimi.com'
-    }
   }, [])
 
   return (

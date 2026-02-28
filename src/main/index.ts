@@ -9,8 +9,7 @@ import {
   nativeImage,
   dialog,
   session,
-  Notification,
-  net
+  Notification
 } from 'electron'
 import { join } from 'path'
 import fs from 'fs'
@@ -258,7 +257,7 @@ function createWindow(): void {
   })
 
   // Log preload errors
-  mainWindow.webContents.on('preload-error', (event, preloadPath, error) => {
+  mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
     console.error('[Main] Preload error:', preloadPath, error)
   })
 
@@ -411,7 +410,7 @@ ipcMain.handle('clear-data', async (_, type: 'all' | 'cache' | 'history' | 'cook
         await ses.clearCodeCaches({})
         break
       case 'cookies':
-        await ses.clearStorageData({ storages: ['cookies', 'localstorage', 'sessionstorage'] })
+        await ses.clearStorageData({ storages: ['cookies', 'localstorage'] })
         break
       case 'history':
         // Clear conversations file
@@ -423,7 +422,7 @@ ipcMain.handle('clear-data', async (_, type: 'all' | 'cache' | 'history' | 'cook
         } catch (error) {
           console.error('Failed to clear conversations:', error)
         }
-        await ses.clearStorageData({ storages: ['indexeddb'] })
+        await ses.clearStorageData({ storages: ['indexdb'] })
         break
       case 'all':
         await ses.clearStorageData()
@@ -465,13 +464,9 @@ ipcMain.handle('export-conversations', async () => {
 })
 
 ipcMain.handle('import-conversations', async (_, data) => {
-  try {
-    const convPath = getConversationsPath()
-    fs.writeFileSync(convPath, JSON.stringify(data, null, 2), 'utf-8')
-    return { success: true }
-  } catch (error) {
-    throw error
-  }
+  const convPath = getConversationsPath()
+  fs.writeFileSync(convPath, JSON.stringify(data, null, 2), 'utf-8')
+  return { success: true }
 })
 
 // CRITICAL FIX: API Proxy - Make API calls from main process to bypass CSP
@@ -492,7 +487,7 @@ ipcMain.handle(
     try {
       const url = `${requestData.endpoint}${requestData.path}`
 
-      // Use Electron's net module for HTTP requests
+      // Use fetch from the main process to bypass CSP
       const response = await fetch(url, {
         method: requestData.method,
         headers: {

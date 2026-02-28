@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Conversation, offlineManager } from '../utils/offlineManager'
+import { useDeferredValue, useMemo, useState } from 'react'
+import { Conversation, useOfflineConversations } from '../utils/offlineManager'
 import '../assets/ConversationSidebar.css'
 
 interface ConversationSidebarProps {
@@ -9,43 +9,61 @@ interface ConversationSidebarProps {
   currentConversationId?: string
 }
 
+const GROUP_ORDER = ['Today', 'Yesterday', 'This Week', 'This Month', 'Older'] as const
+
+function isOfflineConversation(conversation: Conversation): boolean {
+  return conversation.isOffline === true || conversation.isOffline === 1
+}
+
 export default function ConversationSidebar({
   isOpen,
   onClose,
   onSelectConversation,
   currentConversationId
 }: ConversationSidebarProps): React.JSX.Element | null {
-  const [conversations, setConversations] = useState<Conversation[]>([])
   const [searchQuery, setSearchQuery] = useState('')
-  const [isLoading, setIsLoading] = useState(true)
   const [viewMode, setViewMode] = useState<'all' | 'offline'>('all')
+  const deferredQuery = useDeferredValue(searchQuery.trim().toLowerCase())
 
-  useEffect(() => {
-    if (isOpen) {
-      loadConversations()
+  const {
+    conversations: allConversations,
+    isLoading,
+    refresh,
+    deleteConversation
+  } = useOfflineConversations({ enabled: isOpen })
+
+  const visibleConversations = useMemo((): Conversation[] => {
+    let result = allConversations
+
+    if (viewMode === 'offline') {
+      result = result.filter(isOfflineConversation)
     }
-  }, [isOpen, viewMode])
 
-  const loadConversations = async () => {
-    setIsLoading(true)
-    try {
-      const data =
-        viewMode === 'offline'
-          ? await offlineManager.getOfflineConversations()
-          : await offlineManager.getAllConversations()
-      setConversations(data)
-    } catch (error) {
-      console.error('Failed to load conversations:', error)
-    } finally {
-      setIsLoading(false)
+    if (deferredQuery) {
+      result = result.filter((conv) => {
+        if (conv.title.toLowerCase().includes(deferredQuery)) return true
+        return conv.messages.some((m) => m.content.toLowerCase().includes(deferredQuery))
+      })
     }
-  }
 
-  const handleDelete = async (id: string, event: React.MouseEvent) => {
+    return result
+  }, [allConversations, deferredQuery, viewMode])
+
+  const offlineCount = useMemo((): number => {
+    return allConversations.reduce(
+      (count, conv) => count + (isOfflineConversation(conv) ? 1 : 0),
+      0
+    )
+  }, [allConversations])
+
+  const handleDelete = async (id: string, event: React.MouseEvent): Promise<void> => {
     event.stopPropagation()
     if (confirm('Delete this conversation?')) {
-      await offlineManager.deleteConversation(id)
-      loadConversations()
+      try {
+        await deleteConversation(id)
+      } catch (error) {
+        console.error('[Sidebar] Failed to delete conversation:', error)
+      }
     }
   }
 
@@ -63,32 +81,26 @@ export default function ConversationSidebar({
     }
   }
 
-  const filteredConversations = conversations.filter(
-    (conv) =>
-      conv.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      conv.messages.some((m) => m.content.toLowerCase().includes(searchQuery.toLowerCase()))
-  )
+  const groupedConversations = useMemo((): Record<string, Conversation[]> => {
+    return visibleConversations.reduce(
+      (groups, conv) => {
+        const date = new Date(conv.updatedAt)
+        const now = new Date()
+        const diff = now.getTime() - date.getTime()
 
-  const groupedConversations = filteredConversations.reduce(
-    (groups, conv) => {
-      const date = new Date(conv.updatedAt)
-      const now = new Date()
-      const diff = now.getTime() - date.getTime()
+        let group = 'Older'
+        if (diff < 24 * 60 * 60 * 1000) group = 'Today'
+        else if (diff < 2 * 24 * 60 * 60 * 1000) group = 'Yesterday'
+        else if (diff < 7 * 24 * 60 * 60 * 1000) group = 'This Week'
+        else if (diff < 30 * 24 * 60 * 60 * 1000) group = 'This Month'
 
-      let group = 'Older'
-      if (diff < 24 * 60 * 60 * 1000) group = 'Today'
-      else if (diff < 2 * 24 * 60 * 60 * 1000) group = 'Yesterday'
-      else if (diff < 7 * 24 * 60 * 60 * 1000) group = 'This Week'
-      else if (diff < 30 * 24 * 60 * 60 * 1000) group = 'This Month'
-
-      if (!groups[group]) groups[group] = []
-      groups[group].push(conv)
-      return groups
-    },
-    {} as Record<string, Conversation[]>
-  )
-
-  const groupOrder = ['Today', 'Yesterday', 'This Week', 'This Month', 'Older']
+        if (!groups[group]) groups[group] = []
+        groups[group].push(conv)
+        return groups
+      },
+      {} as Record<string, Conversation[]>
+    )
+  }, [visibleConversations])
 
   if (!isOpen) return null
 
@@ -113,13 +125,13 @@ export default function ConversationSidebar({
 
         <div className="sidebar-filters">
           <button className={viewMode === 'all' ? 'active' : ''} onClick={() => setViewMode('all')}>
-            All
+            All ({allConversations.length})
           </button>
           <button
             className={viewMode === 'offline' ? 'active' : ''}
             onClick={() => setViewMode('offline')}
           >
-            Offline Available
+            Offline ({offlineCount})
           </button>
         </div>
 
@@ -148,10 +160,13 @@ export default function ConversationSidebar({
               <div className="spinner"></div>
               <p>Loading conversations...</p>
             </div>
-          ) : filteredConversations.length === 0 ? (
+          ) : visibleConversations.length === 0 ? (
             <div className="empty-state">
               <div className="empty-icon">💬</div>
-              <p>No conversations found</p>
+              <p>{searchQuery ? 'No matches found' : 'No conversations found'}</p>
+              {viewMode === 'offline' && (
+                <p className="empty-subtitle">No offline conversations saved yet</p>
+              )}
               {searchQuery && (
                 <button onClick={() => setSearchQuery('')} className="clear-search">
                   Clear search
@@ -159,7 +174,7 @@ export default function ConversationSidebar({
               )}
             </div>
           ) : (
-            groupOrder.map((group) => {
+            GROUP_ORDER.map((group) => {
               const groupConvs = groupedConversations[group]
               if (!groupConvs || groupConvs.length === 0) return null
 
@@ -178,7 +193,9 @@ export default function ConversationSidebar({
                       <div className="conversation-info">
                         <div className="conversation-title">
                           {conv.title || 'Untitled Conversation'}
-                          {conv.isOffline && <span className="offline-badge">Offline</span>}
+                          {(conv.isOffline === true || conv.isOffline === 1) && (
+                            <span className="offline-badge">Offline</span>
+                          )}
                         </div>
                         <div className="conversation-preview">
                           {conv.messages[conv.messages.length - 1]?.content.substring(0, 50) ||
@@ -207,9 +224,9 @@ export default function ConversationSidebar({
 
         <div className="sidebar-footer">
           <p>
-            {conversations.length} conversation{conversations.length !== 1 ? 's' : ''} saved
+            {visibleConversations.length} shown • {allConversations.length} saved
           </p>
-          <button onClick={loadConversations} className="refresh-btn" title="Refresh">
+          <button onClick={refresh} className="refresh-btn" title="Refresh">
             🔄
           </button>
         </div>
