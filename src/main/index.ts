@@ -645,9 +645,9 @@ app.whenReady().then(() => {
     const fontSrc = "'self' https://kimi.ai https://*.kimi.ai https://kimi.com https://*.kimi.com"
     const frameSrc = "'self' https://kimi.ai https://kimi.com"
 
-    // CRITICAL: connect-src must include the Kimi Code API and Moonshot CDN
+    // connect-src must include the Kimi Code API
     const connectSrc =
-      "'self' https://kimi.ai https://*.kimi.ai wss://*.kimi.ai https://kimi.com https://*.kimi.com wss://*.kimi.com https://api.kimi.com https://*.moonshot.ai"
+      "'self' https://kimi.ai https://*.kimi.ai wss://*.kimi.ai https://kimi.com https://*.kimi.com wss://*.kimi.com https://api.kimi.com"
 
     const cspString = [
       `default-src ${defaultSrc}`,
