@@ -39,7 +39,7 @@ declare global {
 
       // Settings management
       getSettings: () => Promise<any>
-      saveSettings: (settings: any) => Promise<{ success: boolean }>
+      saveSettings: (settings: any) => Promise<{ success: boolean; error?: string }>
 
       // Data clearing
       clearData: (
@@ -48,7 +48,7 @@ declare global {
 
       // Conversation management
       exportConversations: () => Promise<any[]>
-      importConversations: (data: any[]) => Promise<{ success: boolean }>
+      importConversations: (data: any[]) => Promise<{ success: boolean; error?: string }>
 
       // CRITICAL FIX: API Proxy - Bypass CSP restrictions (Kimi Code OAuth session)
       kimiApiRequest: (requestData: { method: string; path: string; body?: any }) => Promise<{
@@ -85,9 +85,6 @@ declare global {
 
       // Network
       isOnline: () => boolean
-
-      // Cleanup
-      removeAllListeners: (channel: string) => void
     }
   }
 }
