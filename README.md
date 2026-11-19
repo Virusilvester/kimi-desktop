@@ -1,20 +1,17 @@
 <p align="center">
-  <img src="./build/icon.png" width="120" alt="Kimi Desktop Logo" />
+  <img src="./build/icon.png" width="120" alt="Kimi Dock logo" />
 </p>
 
 <h1 align="center">Kimi Dock</h1>
 
 <p align="center">
-  <b>Personal fork of <a href="https://github.com/Virusilvester/kimi-desktop">kimi-desktop</a> — desktop dock for <a href="https://kimi.ai">Kimi AI</a></b><br>
-  Kimi Code Plan subscription via OAuth • Offline-capable • Privacy-focused
+  <b>Desktop dock for <a href="https://kimi.ai">Kimi AI</a> on a Kimi Code Plan subscription</b><br>
+  OAuth device-flow login · Sandboxed webview · arm64 deb with AppArmor
 </p>
 
 <p align="center">
-  <a href="https://github.com/Virusilvester/kimi-desktop/releases">
-    <img src="https://img.shields.io/github/v/release/Virusilvester/kimi-desktop?style=flat-square&color=blue" alt="Latest Release" />
-  </a>
-  <a href="https://github.com/Virusilvester/kimi-desktop/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/Virusilvester/kimi-desktop?style=flat-square&color=green" alt="License" />
+  <a href="https://github.com/heni/kimi-dock/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/heni/kimi-dock?style=flat-square&color=green" alt="License" />
   </a>
   <img src="https://img.shields.io/badge/Electron-191970?style=flat-square&logo=Electron&logoColor=white" alt="Electron" />
   <img src="https://img.shields.io/badge/TypeScript-007ACC?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
@@ -23,214 +20,143 @@
 
 <p align="center">
   <a href="#features">Features</a> •
-  <a href="#downloads">Downloads</a> •
   <a href="#installation">Installation</a> •
   <a href="#usage">Usage</a> •
   <a href="#keyboard-shortcuts">Shortcuts</a> •
-  <a href="#development">Development</a>
+  <a href="#development">Development</a> •
+  <a href="#relationship-to-upstream">Upstream</a>
 </p>
 
 ---
 
-## ✨ Features
+## Features
 
-### Core Experience
-- **🌐 Native Desktop Wrapper** — Seamless Kimi AI experience with system tray integration and native window controls
-- **💾 Persistent Sessions** — Stay logged in with encrypted local storage of credentials
-- **🔄 Auto-Recovery** — Intelligent retry logic with exponential backoff for connection issues
+### Kimi Code Plan login (no API keys)
 
-### Offline Capabilities (v3.0)
-- **📚 Conversation History** — Automatic local storage of all conversations using IndexedDB
-- **🔌 Offline Mode** — Continue accessing and searching past conversations without internet
-- **🔑 API Integration** — Direct Moonshot API support for offline chat with your own API key
-- **📤 Import/Export** — Backup and restore your conversation history as JSON
+- **OAuth 2.0 Device Authorization Grant** against your [Kimi Code Plan](https://www.kimi.com)
+  subscription — the app calls `api.kimi.com/coding/v1`, not the pay-per-token
+  Moonshot Open Platform.
+- **Token isolation** — the OAuth token lives only in the main process
+  (`~/.config/kimi-dock/kimi-code.json`, mode 0600). The renderer never sees
+  it; all API calls go through a validated IPC proxy.
+- **Model picker** — the coding model list is fetched at login and selectable
+  in Settings → Kimi Account.
 
-### Privacy & Security
-- **🔒 Context Isolation** — Sandboxed webview with disabled Node.js integration
-- **🛡️ Content Security Policy** — Strict CSP headers preventing XSS attacks
-- **🔐 Local API Key Storage** — Encrypted-at-rest API credentials
-- **🧹 Data Control** — Granular clearing of cache, cookies, history, or all data
+### Kimi AI in a sandboxed webview
 
-### Productivity
-- **⚡ Keyboard Shortcuts** — Full keyboard navigation support
-- **📐 Window Persistence** — Remembers size, position, and maximized state
-- **🎯 Deep Linking** — `kimi://` protocol support for opening specific conversations
-- **🔔 Desktop Notifications** — Optional alerts for new messages
+- **Native wrapper** — frameless window, system tray, `kimi://` deep links,
+  window state persistence, desktop notifications.
+- **Chromium sandbox kept on** — the webview runs sandboxed, and the deb
+  ships an AppArmor profile granting `userns` to the binary (the pattern
+  Ubuntu uses for its own Chromium package), so the sandbox survives on
+  Ubuntu ≥ 23.10 without setuid helpers.
+- **Strict CSP** — content security policy enforced for the webview and the
+  shell, limited to the `kimi.ai`/`kimi.com`/`api.kimi.com` origins.
 
----
+### Resilient chat
 
-## 📥 Downloads
+- **Auto-recovery** — automatic reload with backoff when the webview fails to
+  load.
+- **Local chat** — an offline-mode chat view that talks to the Kimi Code API
+  through the same OAuth session.
+- **Conversation history** — conversations are stored locally (IndexedDB),
+  searchable from the sidebar; import/export as JSON in Settings.
+- **Offline access to history** — past conversations stay readable and
+  searchable without network. Sending messages requires network (they go
+  through the Kimi Code API).
 
-Download the latest version from the [Releases](https://github.com/Virusilvester/kimi-desktop/releases) page.
+### Clipboard bridge
 
-| Platform | Download | Notes |
-|----------|----------|-------|
-| **Windows** | `.exe` (Installer) | Windows 10/11, auto-updates supported |
-| **Linux** | `.AppImage` | Portable, works on most distributions |
-| | `.deb` | Debian, Ubuntu, Mint |
-| | `.rpm` | Fedora, RHEL, openSUSE |
-| | `.snap` | Ubuntu Snap Store |
+- Renderer code can read the system clipboard as **plain text, native HTML,
+  rich text (RTF returned as an HTML fragment), or images (data URLs)**, and
+  write text/HTML/images back — through two enum-restricted IPC handlers in
+  the main process. Writes are size-capped and failed image decodes are
+  reported.
 
-> **Note:** macOS is not currently supported. If you're a Mac user, consider using the web version at [kimi.com](https://kimi.com) or building from source.
+## Installation
 
-### System Requirements
+Kimi Dock targets **Linux arm64** and ships as a `.deb`. Build it from source:
 
-- **Windows**: Windows 10 version 1809 or later
-- **Linux**: Ubuntu 18.04+, Fedora 32+, or equivalent with glibc 2.31+
-
----
-
-## 🚀 Installation
-
-### Windows
-1. Download `Kimi-Desktop-Setup-x.x.x.exe` from [Releases](https://github.com/Virusilvester/kimi-desktop/releases)
-2. Run the installer (administrator rights not required for user install)
-3. Launch from Start Menu or Desktop shortcut
-
-> **SmartScreen Warning:** Windows may show a SmartScreen warning since the app is not code-signed with an expensive EV certificate. Click "More info" → "Run anyway" to proceed.
-
-### Linux
-
-#### AppImage (Recommended - Works everywhere)
 ```bash
-# Download
-wget https://github.com/Virusilvester/kimi-desktop/releases/download/v3.0.0/Kimi-Desktop-3.0.0.AppImage
-
-# Make executable
-chmod +x Kimi-Desktop-3.0.0.AppImage
-
-# Run
-./Kimi-Desktop-3.0.0.AppImage
+git clone https://github.com/heni/kimi-dock.git
+cd kimi-dock
+npm ci
+npm run build:linux        # → dist/kimi-dock_<version>_arm64.deb
+sudo apt install ./dist/kimi-dock_*_arm64.deb
 ```
 
-#### Debian/Ubuntu (.deb)
-```bash
-sudo dpkg -i kimi-desktop_3.0.0_amd64.deb
-sudo apt-get install -f  # Fix dependencies if needed
-```
+The package's postinst installs the AppArmor profile
+(`/etc/apparmor.d/kimi-dock`) and reloads it, so the Chromium sandbox works
+out of the box; prerm removes the profile on uninstall.
 
-#### Fedora/RHEL (.rpm)
-```bash
-sudo rpm -i kimi-desktop-3.0.0.x86_64.rpm
-```
+Runtime dependencies are the usual Electron/X11 set (GTK 3, libnotify,
+libnss3, libasound2, …) and are declared as deb dependencies.
 
-#### Snap Store
-```bash
-sudo snap install kimi-desktop
-```
+## Usage
 
----
+1. Launch **Kimi Dock** — the main window shows the Kimi AI web app.
+2. Open **Settings → Kimi Account** and start the device-flow login: the app
+   shows a verification URL and a user code; authorize in your browser.
+3. Pick a coding model in the same tab.
+4. Chat normally; conversations are saved locally and appear in the sidebar
+   (`Ctrl+Shift+S`).
 
-## 🎮 Usage
+Data controls (Settings → Privacy): clear cache, cookies, conversation
+history, or everything — the OAuth session is cleared with "all data".
 
-### First Launch
-1. Sign in to your Kimi account (webview)
-2. *(Optional)* Add your Moonshot API key in **Settings → API Key** for offline chat
-3. Start chatting — conversations auto-save locally
-
-### Offline Mode
-When internet disconnects:
-- 🟡 **Yellow indicator** appears in title bar
-- 📂 Access all saved conversations via sidebar (`Ctrl+Shift+S`)
-- ✏️ Continue chatting if API key is configured (responses via Moonshot API)
-- 🔄 Auto-reconnect when network returns
-
-### Conversation Management
-- **Search** (`Ctrl+Shift+S`): Find any message across all conversations
-- **Filter**: View all or offline-only conversations
-- **Export**: Backup as JSON via Settings → General
-- **Delete**: Individual conversation removal with confirmation
-
----
-
-## ⌨️ Keyboard Shortcuts
+## Keyboard shortcuts
 
 | Shortcut | Action |
 |----------|--------|
-| `Ctrl/Cmd + R` | Reload page |
-| `Ctrl/Cmd + Shift + R` | Force reload (ignore cache) |
-| `Ctrl/Cmd + +` | Zoom in |
-| `Ctrl/Cmd + -` | Zoom out |
-| `Ctrl/Cmd + 0` | Reset zoom |
-| `Ctrl/Cmd + Shift + S` | Toggle conversation sidebar |
-| `Ctrl/Cmd + ,` | Open Settings |
-| `Ctrl/Cmd + W` | Close window (minimize to tray) |
-| `Ctrl/Cmd + Q` | Quit application |
+| `Ctrl + ,` | Open Settings |
+| `Ctrl + Shift + S` | Toggle conversation sidebar |
 
----
+## Development
 
-## 🛠️ Development
-
-### Prerequisites
-- [Node.js](https://nodejs.org/) 18.x or later
-- npm 9.x or later (or yarn/pnpm)
-
-### Setup
 ```bash
-# Clone repository
-git clone https://github.com/Virusilvester/kimi-desktop.git
-cd kimi-desktop
-
-# Install dependencies
-npm install
-
-# Run in development mode (hot reload)
-npm run dev
-
-# Build for production
-npm run build
-
-# Package for distribution
-npm run release:win    # Windows
-npm run release:linux  # Linux
+npm ci               # install (rebuilds native deps)
+npm run dev          # dev mode with HMR
+npm run check        # typecheck + lint + build
+npm run test:e2e     # Playwright smoke: shell, OAuth session, webview, clipboard
 ```
 
-### Project Structure
+`test:e2e` launches the built app against your real desktop session: the
+Chromium sandbox must be allowed to start (on Ubuntu ≥ 23.10 install the
+AppArmor profile from `packaging/apparmor/` for the dev Electron binary —
+same content as the deb ships), and the OAuth check expects a logged-in
+session in `~/.config/kimi-dock`.
+
+### Architecture
+
+Three processes, data flowing one way: renderer → preload → main.
+
 ```
-kimi-desktop/
-├── src/
-│   ├── main/           # Electron main process (IPC, window management)
-│   ├── preload/        # Preload scripts (secure bridge)
-│   └── renderer/       # React frontend (UI components)
-├── build/              # Build resources (icons, entitlements)
-├── resources/          # Static assets
-└── electron.vite.config.ts  # Build configuration
+src/
+├── main/            # main process: window, tray, IPC handlers, CSP
+│   ├── index.ts     #   app shell + validated IPC surface
+│   ├── kimi-oauth.ts#   Kimi Code OAuth device flow + token lifecycle
+│   └── clipboard.ts #   clipboard read (text/HTML/RTF→HTML/image),
+│                      #   write (text/HTML/image)
+├── preload/         # contextBridge: the only renderer→main API (window.api)
+└── renderer/        # React shell: title bar, webview, local (offline) chat,
+                     # settings
 ```
 
-### Tech Stack
-- **Electron** — Cross-platform desktop framework
-- **Vite** — Fast build tooling and HMR
-- **React 18** — UI framework with TypeScript
-- **IndexedDB** — Client-side conversation storage
-- **electron-builder** — Distribution packaging
+Security posture: context isolation on, node integration off, renderer
+sandboxed; every payload-bearing IPC handler validates its input; the API
+proxy accepts no path other than `GET`/`POST /chat/completions`; files under
+`userData` are resolved and confined to that directory.
 
----
+## Relationship to upstream
 
-## 🤝 Contributing
+Kimi Dock is a fork of [Virusilvester/kimi-desktop](https://github.com/Virusilvester/kimi-desktop)
+(MIT). The fork replaces the upstream Moonshot API-key mode with Kimi Code
+Plan OAuth, hardens the renderer-to-main bridge, adds the clipboard bridge,
+and packages for Ubuntu arm64 with AppArmor. Upstream remains the base for
+webview-wrapper behavior; non-fork-specific fixes are intended to be
+contributed back. Pre-3.0.0 history is upstream's — see
+[CHANGELOG](./CHANGELOG.md).
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+## License
 
----
-
-## 📜 License
-
-Distributed under the MIT License. See [LICENSE](./LICENSE) for more information.
-
----
-
-## 🙏 Acknowledgments
-
-- [Electron](https://www.electronjs.org/) — Cross-platform desktop apps
-- [Moonshot AI](https://www.moonshot.ai/) — Kimi AI platform
-- [electron-vite](https://electron-vite.org/) — Modern Electron build tooling
-- Icons by [Heroicons](https://heroicons.com/)
-
----
-
-<p align="center">
-  <sub>Built with ❤️ by <a href="https://github.com/Virusilvester">Virusilvester</a></sub>
-</p>
+[MIT](./LICENSE)
