@@ -1,0 +1,28 @@
+# AppArmor profile for the kimi-desktop Electron binary.
+#
+# Ubuntu (>=23.10) restricts unprivileged user namespaces via AppArmor
+# (kernel.apparmor_restrict_unprivileged_userns=1), which breaks Chromium's
+# sandbox for binaries that do not ship a setuid chrome-sandbox helper
+# (npm-installed Electron included). This profile grants only the userns
+# capability to the Electron binary while leaving everything else
+# unconfined — the same pattern Ubuntu uses for the chromium deb.
+#
+# Install:
+#   sudo cp packaging/apparmor/kimi-desktop-electron /etc/apparmor.d/
+#   sudo apparmor_parser -r /etc/apparmor.d/kimi-desktop-electron
+# Verify:
+#   aa-status | grep kimi-desktop
+#
+# The profile keys on the node_modules path, so it survives `npm ci`.
+# A packaged install (AppImage/deb) would need its own attachment path.
+
+abi <abi/5.0>,
+include <tunables/global>
+
+profile kimi-desktop-electron @{HOME}/projects/home-lab/kimi-desktop/node_modules/electron/dist/electron flags=(unconfined) {
+  userns,
+  @{exec_path} mr,
+
+  # Site-specific additions and overrides. See local/README for details.
+  include if exists <local/kimi-desktop-electron>
+}
