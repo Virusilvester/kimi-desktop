@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-11-20
+
+Kimi Dock releases (fork of kimi-desktop; versions before 3.0.0 belong to the
+upstream project).
+
+### Added
+
+- **Clipboard bridge** — renderer access to the system clipboard through the
+  main process: read text / native HTML / rich-text (RTF converted to HTML)
+  / images (as data URLs); write text / HTML (with plain-text fallback) /
+  images. Formats are enum-restricted over IPC, writes are size-capped, and
+  failed image decodes are reported.
+
+### Security
+
+- **Renderer-to-main bridge hardening** — the API proxy accepts only
+  `POST /chat/completions` (no GET bodies), every userData file access is
+  resolved and confined to the userData directory, payload-bearing IPC
+  handlers validate their inputs, and the `removeAllListeners` hole is
+  removed from the preload bridge.
+- Main-process CSP no longer allows `*.moonshot.ai` (leftover of the removed
+  Moonshot API-key mode); both CSP enforcement points are in sync.
+
+## [3.0.0] - 2026-11-19
+
+### Changed
+
+- **Kimi Code Plan authentication** — the upstream Moonshot API-key mode is
+  replaced with OAuth 2.0 Device Authorization Grant against a Kimi Code
+  Plan subscription (`api.kimi.com/coding/v1`). The token never leaves the
+  main process (`kimi-code.json`, mode 0600); the model list is fetched at
+  login and user-selectable in Settings. Product renamed to Kimi Dock.
+
+### Added
+
+- **arm64 deb packaging with AppArmor** — Ubuntu arm64 `.deb` with a
+  postinst-installed AppArmor `userns` profile so the Chromium sandbox stays
+  enabled (SUID workarounds rejected by design; AppImage not shipped because
+  the profile cannot be packaged into it).
+- **Playwright e2e smoke test** — `npm run test:e2e`: window shell, live
+  OAuth session, webview target, clipboard roundtrips.
+
 ## [v2.0.1] - 2026-02-18
 
 ### ✨ Added
