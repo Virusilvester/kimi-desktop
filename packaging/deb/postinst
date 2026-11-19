@@ -1,0 +1,21 @@
+#!/bin/sh
+# postinst for kimi-dock: install the AppArmor userns profile so the
+# Chromium sandbox works under Ubuntu >=23.10 AppArmor restrictions.
+set -e
+
+PROFILE_SRC="/opt/Kimi Dock/resources/apparmor/kimi-dock"
+PROFILE_DST="/etc/apparmor.d/kimi-dock"
+
+if [ -f "$PROFILE_SRC" ]; then
+  install -m 0644 "$PROFILE_SRC" "$PROFILE_DST"
+  if command -v apparmor_parser >/dev/null 2>&1; then
+    apparmor_parser -r "$PROFILE_DST" 2>/dev/null || true
+  fi
+fi
+
+# update-alternatives / desktop database refresh
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database /usr/share/applications 2>/dev/null || true
+fi
+
+exit 0

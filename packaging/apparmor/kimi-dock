@@ -1,0 +1,23 @@
+# AppArmor profile for the installed Kimi Dock deb package.
+#
+# Ubuntu (>=23.10) restricts unprivileged user namespaces via AppArmor
+# (kernel.apparmor_restrict_unprivileged_userns=1), which breaks the
+# Chromium sandbox for Electron apps that do not ship a setuid helper.
+# This profile grants only the userns capability to the installed binary
+# while leaving everything else unconfined — same pattern Ubuntu uses for
+# the chromium deb.
+#
+# Installed by the deb's postinst script into /etc/apparmor.d/ and removed
+# by prerm. The dev profile (node_modules path) lives separately in
+# packaging/apparmor/kimi-desktop-electron.
+
+abi <abi/5.0>,
+include <tunables/global>
+
+profile kimi-dock "/opt/Kimi Dock/kimi-dock" flags=(unconfined) {
+  userns,
+  @{exec_path} mr,
+
+  # Site-specific additions and overrides. See local/README for details.
+  include if exists <local/kimi-dock>
+}

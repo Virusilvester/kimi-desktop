@@ -1,0 +1,14 @@
+#!/bin/sh
+# prerm for kimi-dock: remove the AppArmor profile installed by postinst.
+set -e
+
+PROFILE_DST="/etc/apparmor.d/kimi-dock"
+
+if [ -f "$PROFILE_DST" ]; then
+  if command -v apparmor_parser >/dev/null 2>&1; then
+    apparmor_parser -R "$PROFILE_DST" 2>/dev/null || true
+  fi
+  rm -f "$PROFILE_DST"
+fi
+
+exit 0
