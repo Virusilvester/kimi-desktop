@@ -98,12 +98,7 @@ contextBridge.exposeInMainWorld('api', {
   openDevTools: (): void => ipcRenderer.send('open-dev-tools'),
 
   // Network status (renderer can use navigator.onLine, but this is for consistency)
-  isOnline: (): boolean => navigator.onLine,
-
-  // Remove listeners
-  removeAllListeners: (channel: string): void => {
-    ipcRenderer.removeAllListeners(channel)
-  }
+  isOnline: (): boolean => navigator.onLine
 })
 
 // Expose electron versions (safe info)

@@ -11,7 +11,7 @@ import {
   session,
   Notification
 } from 'electron'
-import { join } from 'path'
+import { join, resolve, sep } from 'path'
 import fs from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -98,7 +98,7 @@ function migrateLegacyUserData(): void {
     fs.mkdirSync(current, { recursive: true })
     for (const file of files) {
       const from = join(legacy, file)
-      const to = join(current, file)
+      const to = userDataFile(file)
       if (fs.existsSync(from) && !fs.existsSync(to)) {
         fs.copyFileSync(from, to)
         console.log('[Main] Migrated', file, 'from legacy userData')
@@ -111,15 +111,31 @@ function migrateLegacyUserData(): void {
 
 // Get paths
 function getWindowStatePath(): string {
-  return join(app.getPath('userData'), 'window-state.json')
+  return userDataFile('window-state.json')
 }
 
 function getSettingsPath(): string {
-  return join(app.getPath('userData'), 'settings.json')
+  return userDataFile('settings.json')
 }
 
 function getConversationsPath(): string {
-  return join(app.getPath('userData'), 'conversations.json')
+  return userDataFile('conversations.json')
+}
+
+// Defense in depth for every file accessed under userData: resolve the final
+// path and refuse anything that escapes the directory (e.g. via '..' segments
+// if a path ever becomes caller-controlled).
+function userDataFile(...segments: string[]): string {
+  const base = app.getPath('userData')
+  const resolved = resolve(base, ...segments)
+  if (resolved !== base && !resolved.startsWith(base + sep)) {
+    throw new Error(`Refused path outside userData: ${resolved}`)
+  }
+  return resolved
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 // Read saved window state
@@ -196,6 +212,51 @@ function saveSettingsToFile(settings: AppSettings) {
   } catch {
     // Ignore persistence errors
   }
+}
+
+// Minimal manual type checks for the renderer-supplied settings payload
+// (project rule: no schema-validation dependencies).
+const SETTINGS_BOOL_FIELDS = [
+  'offlineMode',
+  'autoSaveConversations',
+  'saveHistory',
+  'launchOnStartup',
+  'minimizeToTray',
+  'desktopNotifications',
+  'spellCheck',
+  'hardwareAcceleration'
+] as const
+
+function sanitizeSettings(input: unknown): AppSettings | null {
+  if (!isRecord(input)) return null
+  const settings = { ...defaultSettings }
+
+  for (const field of SETTINGS_BOOL_FIELDS) {
+    if (!(field in input)) continue
+    const value = input[field]
+    if (typeof value !== 'boolean') return null
+    settings[field] = value
+  }
+
+  for (const field of ['maxHistoryDays', 'cacheSize'] as const) {
+    if (!(field in input)) continue
+    const value = input[field]
+    if (typeof value !== 'number' || !Number.isFinite(value)) return null
+    settings[field] = value
+  }
+
+  if ('theme' in input) {
+    if (input.theme !== 'system' && input.theme !== 'light' && input.theme !== 'dark') return null
+    settings.theme = input.theme
+  }
+  if ('fontSize' in input) {
+    if (input.fontSize !== 'small' && input.fontSize !== 'medium' && input.fontSize !== 'large') {
+      return null
+    }
+    settings.fontSize = input.fontSize
+  }
+
+  return settings
 }
 
 // Create main window
@@ -398,13 +459,15 @@ ipcMain.handle('get-app-version', () => {
 // Dialogs
 ipcMain.handle('show-save-dialog', async (_, options) => {
   if (!mainWindow || mainWindow.isDestroyed()) return { canceled: true }
-  const result = await dialog.showSaveDialog(mainWindow, options)
+  if (!isRecord(options)) return { canceled: true }
+  const result = await dialog.showSaveDialog(mainWindow, options as Electron.SaveDialogOptions)
   return result
 })
 
 ipcMain.handle('show-open-dialog', async (_, options) => {
   if (!mainWindow || mainWindow.isDestroyed()) return { canceled: true }
-  const result = await dialog.showOpenDialog(mainWindow, options)
+  if (!isRecord(options)) return { canceled: true }
+  const result = await dialog.showOpenDialog(mainWindow, options as Electron.OpenDialogOptions)
   return result
 })
 
@@ -414,13 +477,18 @@ ipcMain.handle('get-settings', async () => {
   return loadSettings()
 })
 
-ipcMain.handle('save-settings', async (_, settings: AppSettings) => {
-  console.log('[IPC] save-settings called', settings)
-  saveSettingsToFile(settings)
+ipcMain.handle('save-settings', async (_, settings: unknown) => {
+  const sanitized = sanitizeSettings(settings)
+  if (!sanitized) {
+    console.log('[IPC] save-settings rejected: invalid payload')
+    return { success: false, error: 'Invalid settings payload' }
+  }
+  console.log('[IPC] save-settings called', sanitized)
+  saveSettingsToFile(sanitized)
 
   // Apply settings that need immediate effect
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.session.setSpellCheckerEnabled(settings.spellCheck)
+    mainWindow.webContents.session.setSpellCheckerEnabled(sanitized.spellCheck)
   }
   return { success: true }
 })
@@ -428,6 +496,9 @@ ipcMain.handle('save-settings', async (_, settings: AppSettings) => {
 // Clear data handlers
 ipcMain.handle('clear-data', async (_, type: 'all' | 'cache' | 'history' | 'cookies') => {
   console.log('[IPC] clear-data called', type)
+  if (type !== 'all' && type !== 'cache' && type !== 'history' && type !== 'cookies') {
+    return { success: false, error: 'Invalid clear-data type' }
+  }
   if (!mainWindow || mainWindow.isDestroyed()) return { success: false, error: 'No window' }
 
   const ses = mainWindow.webContents.session
@@ -493,13 +564,25 @@ ipcMain.handle('export-conversations', async () => {
   }
 })
 
-ipcMain.handle('import-conversations', async (_, data) => {
-  const convPath = getConversationsPath()
-  fs.writeFileSync(convPath, JSON.stringify(data, null, 2), 'utf-8')
-  return { success: true }
+ipcMain.handle('import-conversations', async (_, data: unknown) => {
+  if (!Array.isArray(data) || data.some((item) => !isRecord(item))) {
+    return { success: false, error: 'Invalid conversations payload' }
+  }
+  try {
+    fs.writeFileSync(getConversationsPath(), JSON.stringify(data, null, 2), 'utf-8')
+    return { success: true }
+  } catch (error) {
+    console.error('[IPC] import-conversations failed:', error)
+    return { success: false, error: (error as Error).message }
+  }
 })
 
-// API Proxy through the Kimi Code OAuth session (main process bypasses renderer CSP)
+// API Proxy through the Kimi Code OAuth session (main process bypasses renderer CSP).
+// The renderer must never turn this into a generic HTTP proxy: only the coding
+// API endpoints and GET/POST are allowed.
+const API_PROXY_ALLOWED_PATHS = new Set(['/chat/completions'])
+const API_PROXY_ALLOWED_METHODS = new Set(['GET', 'POST'])
+
 ipcMain.handle(
   'kimi-api-request',
   async (
@@ -511,20 +594,37 @@ ipcMain.handle(
     }
   ) => {
     try {
+      if (!isRecord(requestData)) {
+        return { success: false, error: 'Invalid request payload' }
+      }
+      const method = typeof requestData.method === 'string' ? requestData.method.toUpperCase() : ''
+      const path = requestData.path
+      if (!API_PROXY_ALLOWED_METHODS.has(method)) {
+        return { success: false, error: `Method not allowed: ${method || '(none)'}` }
+      }
+      if (typeof path !== 'string' || !API_PROXY_ALLOWED_PATHS.has(path)) {
+        return {
+          success: false,
+          error: `Path not allowed: ${typeof path === 'string' ? path : '(none)'}`
+        }
+      }
+      // Bodies are only meaningful for POST; GET never carries one.
+      const body = method === 'POST' ? requestData.body : undefined
+
       let accessToken = await ensureFreshAccessToken()
       if (!accessToken) {
         return { success: false, error: 'Not logged in to Kimi account' }
       }
 
-      const url = `${CODING_API_BASE}${requestData.path}`
+      const url = `${CODING_API_BASE}${path}`
       const doFetch = async (): Promise<Response> =>
         fetch(url, {
-          method: requestData.method,
+          method,
           headers: {
             Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
+            ...(body !== undefined ? { 'Content-Type': 'application/json' } : {})
           },
-          body: requestData.body ? JSON.stringify(requestData.body) : undefined
+          body: body !== undefined ? JSON.stringify(body) : undefined
         })
 
       let response = await doFetch()
@@ -579,11 +679,17 @@ ipcMain.handle('kimi-oauth-logout', async () => {
 })
 
 ipcMain.handle('kimi-oauth-select-model', async (_, modelId: string) => {
+  if (typeof modelId !== 'string' || modelId.length === 0) {
+    return { success: false, error: 'Invalid model id' }
+  }
   return oauthSelectModel(modelId)
 })
 
 // Notification handler
 ipcMain.handle('show-notification', (_, options: { title: string; body: string }) => {
+  if (!isRecord(options) || typeof options.title !== 'string' || typeof options.body !== 'string') {
+    return
+  }
   if (Notification.isSupported()) {
     new Notification({
       title: options.title,
