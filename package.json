@@ -18,7 +18,8 @@
     "postinstall": "electron-builder install-app-deps",
     "release": "npm run build && electron-builder",
     "build:win": "npm run build && electron-builder --win",
-    "build:linux": "npm run build && electron-builder --linux"
+    "build:linux": "npm run build && electron-builder --linux",
+    "test:e2e": "node scripts/e2e-smoke.mjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
@@ -40,6 +41,7 @@
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
+    "playwright": "^1.65.1",
     "prettier": "^3.7.4",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
