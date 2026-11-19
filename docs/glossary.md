@@ -60,8 +60,8 @@ Rules:
 
 ## Dependencies between parts
 
-The app has a fixed three-process layout (see `AI/architecture.md`): the main
-process owns secrets and the network bridge; the preload exposes a controlled
-API; the renderer owns UI and the conversation database. Cross-references
-follow this direction: renderer → preload → main. Code that moves data the
-other way (main → renderer beyond IPC events) is a design violation.
+The app has a fixed three-process layout: the main process owns secrets and
+the network bridge; the preload exposes a controlled API; the renderer owns
+UI and the conversation database. Cross-references follow this direction:
+renderer → preload → main. Code that moves data the other way (main →
+renderer beyond IPC events) is a design violation.
