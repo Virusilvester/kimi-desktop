@@ -4,3 +4,12 @@ out
 .DS_Store
 .eslintcache
 *.log*
+
+# Session pipeline files (local-only, see tools/check.sh)
+AGENTS.md
+TODO.md
+HISTORY.md
+AI.md
+AI/
+backlog.md
+.tmp/
