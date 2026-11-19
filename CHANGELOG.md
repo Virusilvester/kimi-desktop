@@ -20,11 +20,11 @@ upstream project).
 
 ### Security
 
-- **Renderer-to-main bridge hardening** — the API proxy accepts only
-  `POST /chat/completions` (no GET bodies), every userData file access is
-  resolved and confined to the userData directory, payload-bearing IPC
-  handlers validate their inputs, and the `removeAllListeners` hole is
-  removed from the preload bridge.
+- **Renderer-to-main bridge hardening** — the API proxy accepts no path
+  other than `GET`/`POST /chat/completions` (no GET bodies), every userData
+  file access is resolved and confined to the userData directory,
+  payload-bearing IPC handlers validate their inputs, and the
+  `removeAllListeners` hole is removed from the preload bridge.
 - Main-process CSP no longer allows `*.moonshot.ai` (leftover of the removed
   Moonshot API-key mode); both CSP enforcement points are in sync.
 
