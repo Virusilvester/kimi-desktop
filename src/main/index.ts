@@ -80,6 +80,35 @@ const defaultSettings: AppSettings = {
   cacheSize: 0
 }
 
+// Migrate data from the upstream "kimi-desktop" userData dir (Linux: ~/.config/kimi-desktop)
+// to this fork's dir (~/.config/kimi-dock). Runs once at startup, before anything
+// reads userData paths.
+function migrateLegacyUserData(): void {
+  try {
+    const current = app.getPath('userData') // e.g. ~/.config/kimi-dock
+    const legacy = join(app.getPath('appData'), 'kimi-desktop')
+    if (legacy === current || !fs.existsSync(legacy)) return
+    const files = [
+      'kimi-code.json',
+      'device_id',
+      'settings.json',
+      'window-state.json',
+      'conversations.json'
+    ]
+    fs.mkdirSync(current, { recursive: true })
+    for (const file of files) {
+      const from = join(legacy, file)
+      const to = join(current, file)
+      if (fs.existsSync(from) && !fs.existsSync(to)) {
+        fs.copyFileSync(from, to)
+        console.log('[Main] Migrated', file, 'from legacy userData')
+      }
+    }
+  } catch (error) {
+    console.error('[Main] Legacy migration failed:', error)
+  }
+}
+
 // Get paths
 function getWindowStatePath(): string {
   return join(app.getPath('userData'), 'window-state.json')
@@ -276,7 +305,7 @@ function createTray() {
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'Show Kimi Desktop',
+      label: 'Show Kimi Dock',
       click: () => {
         mainWindow?.show()
         mainWindow?.focus()
@@ -307,7 +336,7 @@ function createTray() {
     }
   ])
 
-  tray.setToolTip('Kimi Desktop')
+  tray.setToolTip('Kimi Dock')
   tray.setContextMenu(contextMenu)
 
   tray.on('click', () => {
@@ -583,7 +612,8 @@ app.on('open-url', (event, url) => {
 
 app.whenReady().then(() => {
   console.log('[Main] App ready')
-  electronApp.setAppUserModelId('com.kimi.desktop')
+  migrateLegacyUserData()
+  electronApp.setAppUserModelId('io.github.heni.kimi-dock')
 
   // Set up protocol handler
   if (process.defaultApp) {

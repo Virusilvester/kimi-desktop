@@ -1,5 +1,5 @@
 /*
- * E2E smoke test for kimi-desktop using Playwright's Electron API.
+ * E2E smoke test for Kimi Dock using Playwright's Electron API.
  * Verifies: window loads, title bar renders, OAuth session is picked up,
  * webview points at kimi.ai. Screenshots land in /tmp/kimi-desktop-e2e/.
  *
@@ -26,14 +26,16 @@ try {
   const title = await window.textContent('.title .version')
   console.log('[e2e] Window OK, version badge:', title?.trim() || '(none)')
 
-  // 2) OAuth session from ~/.config/kimi-desktop/kimi-code.json is picked up
+  // 2) OAuth session from userData (migrated from upstream ~/.config/kimi-desktop)
   const oauth = await window.evaluate(() => window.api.oauthStatus())
   console.log('[e2e] OAuth loggedIn:', oauth.loggedIn)
   console.log('[e2e] Models:', oauth.models.length, '| selected:', oauth.selectedModel)
   if (!oauth.loggedIn) throw new Error('Expected an active OAuth session')
 
   // 3) WebView is present and targets kimi.ai
-  const webviewSrc = await window.evaluate(() => document.querySelector('webview')?.getAttribute('src'))
+  const webviewSrc = await window.evaluate(() =>
+    document.querySelector('webview')?.getAttribute('src')
+  )
   console.log('[e2e] WebView src:', webviewSrc)
   if (webviewSrc !== 'https://kimi.ai') throw new Error(`Unexpected webview src: ${webviewSrc}`)
 

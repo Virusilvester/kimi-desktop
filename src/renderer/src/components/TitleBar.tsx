@@ -109,7 +109,7 @@ export default function TitleBar({
           </div>
 
           <div className="title">
-            Kimi Desktop {appVersion && <span className="version">v{appVersion}</span>}
+            Kimi Dock {appVersion && <span className="version">v{appVersion}</span>}
             {isOffline && <span className="offline-indicator">Offline</span>}
             {hasSession && <span className="api-badge">Kimi Code</span>}
           </div>

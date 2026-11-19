@@ -337,7 +337,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
                   <div className="setting-item">
                     <label>
                       <span>Launch on Startup</span>
-                      <small>Start Kimi Desktop when you log in</small>
+                      <small>Start Kimi Dock when you log in</small>
                     </label>
                     <label className="toggle">
                       <input

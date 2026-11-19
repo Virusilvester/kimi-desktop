@@ -1,10 +1,11 @@
 {
-  "name": "kimi-desktop",
+  "name": "kimi-dock",
   "version": "3.0.0",
-  "description": "Kimi Desktop - Electron wrapper for kimi.com",
+  "description": "Kimi Dock - desktop dock for Kimi AI (fork of kimi-desktop, uses Kimi Code Plan)",
   "main": "./out/main/index.js",
-  "author": "ViruSilvesteR <onesilonecho@gmail.com>",
-  "homepage": "https://github.com/Virusilvester/kimi-desktop",
+  "author": "heni <eugene.krokhalev@gmail.com>",
+  "homepage": "https://github.com/heni/kimi-dock",
+  "repository": "heni/kimi-dock",
   "license": "MIT",
   "scripts": {
     "format": "prettier --write .",
@@ -49,8 +50,8 @@
     "vite": "^7.2.6"
   },
   "build": {
-    "appId": "com.kimi.desktop",
-    "productName": "Kimi Desktop",
+    "appId": "io.github.heni.kimi-dock",
+    "productName": "Kimi Dock",
     "directories": {
       "output": "dist"
     },
@@ -66,6 +67,7 @@
     ],
     "win": {
       "icon": "resources/icon.ico",
+      "executableName": "kimi-dock",
       "target": [
         {
           "target": "nsis",
@@ -88,6 +90,7 @@
     },
     "linux": {
       "icon": "resources/icon.png",
+      "executableName": "kimi-dock",
       "target": [
         {
           "target": "AppImage",

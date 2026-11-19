@@ -2,11 +2,11 @@
   <img src="./build/icon.png" width="120" alt="Kimi Desktop Logo" />
 </p>
 
-<h1 align="center">Kimi Desktop</h1>
+<h1 align="center">Kimi Dock</h1>
 
 <p align="center">
-  <b>Unofficial desktop client for <a href="https://kimi.com">Kimi AI</a></b><br>
-  Built with Electron • Offline-capable • Privacy-focused
+  <b>Personal fork of <a href="https://github.com/Virusilvester/kimi-desktop">kimi-desktop</a> — desktop dock for <a href="https://kimi.ai">Kimi AI</a></b><br>
+  Kimi Code Plan subscription via OAuth • Offline-capable • Privacy-focused
 </p>
 
 <p align="center">
