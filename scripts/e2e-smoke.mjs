@@ -50,6 +50,49 @@ try {
   console.log('[e2e] Settings → Kimi Account: Connected, model selector visible:', modelSelect)
   await window.screenshot({ path: `${SHOTS}/02-kimi-account.png` })
 
+  // 5) Clipboard bridge roundtrip: write + read back text, image and rich-text.
+  // Side effect: clobbers the user's clipboard — snapshot and restore what
+  // the API can represent (text/image data URLs). Electron's clipboard.write
+  // replaces the whole clipboard per call, and the bridge has no combined
+  // write, so when the original clipboard held both text and image, the
+  // image restore wins and the text layer is lost. Other formats (files,
+  // RTF without an HTML layer) are lost outright.
+  const prevText = await window.evaluate(() => window.api.clipboardRead('text'))
+  const prevImage = await window.evaluate(() => window.api.clipboardRead('image'))
+  try {
+    const clipTextWrite = await window.evaluate(() =>
+      window.api.clipboardWrite('text', 'kimi-dock-clipboard-e2e')
+    )
+    const clipTextRead = await window.evaluate(() => window.api.clipboardRead('text'))
+    if (!clipTextWrite?.success || clipTextRead?.value !== 'kimi-dock-clipboard-e2e') {
+      throw new Error(
+        `Clipboard text roundtrip failed: ${JSON.stringify({ clipTextWrite, clipTextRead })}`
+      )
+    }
+    const PIXEL_PNG =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+    await window.evaluate((dataUrl) => window.api.clipboardWrite('image', dataUrl), PIXEL_PNG)
+    const clipImageRead = await window.evaluate(() => window.api.clipboardRead('image'))
+    if (!clipImageRead?.value || !clipImageRead.value.startsWith('data:image/')) {
+      throw new Error(`Clipboard image roundtrip failed: ${JSON.stringify(clipImageRead)}`)
+    }
+    await window.evaluate(() =>
+      window.api.clipboardWrite('html', '<p>rich <strong>text</strong></p>')
+    )
+    const clipRichRead = await window.evaluate(() => window.api.clipboardRead('rich-text'))
+    if (!clipRichRead?.value || !clipRichRead.value.includes('rich')) {
+      throw new Error(`Clipboard rich-text read failed: ${JSON.stringify(clipRichRead)}`)
+    }
+    console.log('[e2e] Clipboard roundtrip OK (text + image + rich-text)')
+  } finally {
+    if (typeof prevText?.value === 'string') {
+      await window.evaluate((t) => window.api.clipboardWrite('text', t), prevText.value)
+    }
+    if (typeof prevImage?.value === 'string') {
+      await window.evaluate((d) => window.api.clipboardWrite('image', d), prevImage.value)
+    }
+  }
+
   console.log('[e2e] PASS')
 } finally {
   await app.close()

@@ -25,6 +25,12 @@ import {
   forceRefreshAccessToken,
   CODING_API_BASE
 } from './kimi-oauth'
+import {
+  readClipboard,
+  writeClipboard,
+  CLIPBOARD_READ_FORMATS,
+  CLIPBOARD_WRITE_FORMATS
+} from './clipboard'
 
 // Window state management
 interface WindowState {
@@ -697,6 +703,44 @@ ipcMain.handle('show-notification', (_, options: { title: string; body: string }
       icon: icon
     }).show()
   }
+})
+
+// Clipboard bridge: the sandboxed renderer has no Node clipboard access, so
+// reads/writes go through the main process. Formats are restricted to the
+// enum; callers ask for exactly one format per call.
+ipcMain.handle('clipboard-read', async (_, format: unknown) => {
+  if (
+    typeof format !== 'string' ||
+    !(CLIPBOARD_READ_FORMATS as readonly string[]).includes(format)
+  ) {
+    return { success: false, error: 'Invalid clipboard format' }
+  }
+  const value = await readClipboard(format as (typeof CLIPBOARD_READ_FORMATS)[number])
+  return { success: true, value }
+})
+
+ipcMain.handle('clipboard-write', async (_, format: unknown, value: unknown) => {
+  if (
+    typeof format !== 'string' ||
+    !(CLIPBOARD_WRITE_FORMATS as readonly string[]).includes(format)
+  ) {
+    return { success: false, error: 'Invalid clipboard format' }
+  }
+  if (typeof value !== 'string') {
+    return { success: false, error: 'Invalid clipboard value' }
+  }
+  if (format === 'image' && !value.startsWith('data:image/')) {
+    return { success: false, error: 'Image value must be a data:image/ URL' }
+  }
+  const CLIPBOARD_WRITE_MAX_BYTES = 64 * 1024 * 1024
+  if (Buffer.byteLength(value, 'utf8') > CLIPBOARD_WRITE_MAX_BYTES) {
+    return { success: false, error: 'Clipboard value too large' }
+  }
+  const written = writeClipboard(format as (typeof CLIPBOARD_WRITE_FORMATS)[number], value)
+  if (!written) {
+    return { success: false, error: 'Unsupported or invalid clipboard data' }
+  }
+  return { success: true }
 })
 
 // Developer tools

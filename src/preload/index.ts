@@ -98,7 +98,20 @@ contextBridge.exposeInMainWorld('api', {
   openDevTools: (): void => ipcRenderer.send('open-dev-tools'),
 
   // Network status (renderer can use navigator.onLine, but this is for consistency)
-  isOnline: (): boolean => navigator.onLine
+  isOnline: (): boolean => navigator.onLine,
+
+  // Clipboard bridge (Electron clipboard lives in the main process; the
+  // sandboxed renderer has no direct access). 'rich-text' returns paste-ready
+  // HTML (native clipboard HTML, or RTF converted to a fragment).
+  clipboardRead: (
+    format: 'text' | 'html' | 'rich-text' | 'image'
+  ): Promise<{ success: boolean; value?: string | null; error?: string }> =>
+    ipcRenderer.invoke('clipboard-read', format),
+  clipboardWrite: (
+    format: 'text' | 'html' | 'image',
+    value: string
+  ): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('clipboard-write', format, value)
 })
 
 // Expose electron versions (safe info)

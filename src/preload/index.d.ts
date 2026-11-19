@@ -85,6 +85,15 @@ declare global {
 
       // Network
       isOnline: () => boolean
+
+      // Clipboard bridge (main-process Electron clipboard)
+      clipboardRead: (
+        format: 'text' | 'html' | 'rich-text' | 'image'
+      ) => Promise<{ success: boolean; value?: string | null; error?: string }>
+      clipboardWrite: (
+        format: 'text' | 'html' | 'image',
+        value: string
+      ) => Promise<{ success: boolean; error?: string }>
     }
   }
 }
