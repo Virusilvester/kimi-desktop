@@ -5,14 +5,14 @@ interface TitleBarProps {
   onOpenSettings: () => void
   onOpenSidebar: () => void
   isOffline: boolean
-  hasApiKey?: boolean
+  hasSession?: boolean
 }
 
 export default function TitleBar({
   onOpenSettings,
   onOpenSidebar,
   isOffline,
-  hasApiKey
+  hasSession
 }: TitleBarProps): React.JSX.Element {
   const [isMaximized, setIsMaximized] = useState(false)
   const [appVersion, setAppVersion] = useState('')
@@ -111,7 +111,7 @@ export default function TitleBar({
           <div className="title">
             Kimi Desktop {appVersion && <span className="version">v{appVersion}</span>}
             {isOffline && <span className="offline-indicator">Offline</span>}
-            {hasApiKey && <span className="api-badge">API</span>}
+            {hasSession && <span className="api-badge">Kimi Code</span>}
           </div>
         </div>
       </div>

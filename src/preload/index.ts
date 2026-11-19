@@ -54,13 +54,41 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('import-conversations', data),
 
   // CRITICAL FIX: API Proxy - Bypass CSP by making requests in main process
-  kimiApiRequest: (requestData: unknown): Promise<unknown> =>
-    ipcRenderer.invoke('kimi-api-request', requestData),
+  // Uses the Kimi Code OAuth session managed in the main process
+  kimiApiRequest: (requestData: {
+    method: string
+    path: string
+    body?: unknown
+  }): Promise<{
+    success: boolean
+    status?: number
+    data?: any
+    error?: string | null
+  }> => ipcRenderer.invoke('kimi-api-request', requestData),
 
-  // API Key management for offline mode
-  getApiKey: (): Promise<unknown> => ipcRenderer.invoke('get-api-key'),
-  saveApiKey: (apiKey: string, endpoint: string): Promise<unknown> =>
-    ipcRenderer.invoke('save-api-key', apiKey, endpoint),
+  // Kimi Code OAuth (Device Authorization Grant)
+  oauthStatus: (): Promise<{
+    loggedIn: boolean
+    expiresAt?: number
+    models: Array<{ id: string; display_name: string | null; context_length: number }>
+    selectedModel: string | null
+  }> => ipcRenderer.invoke('kimi-oauth-status'),
+  oauthLogin: (): Promise<{ started: boolean }> => ipcRenderer.invoke('kimi-oauth-login'),
+  oauthCancel: (): Promise<{ success: boolean }> => ipcRenderer.invoke('kimi-oauth-cancel'),
+  oauthLogout: (): Promise<{ success: boolean }> => ipcRenderer.invoke('kimi-oauth-logout'),
+  oauthSelectModel: (modelId: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('kimi-oauth-select-model', modelId),
+  onOAuthEvent: (
+    callback: (event: {
+      type: 'verification_url' | 'waiting' | 'success' | 'error'
+      message: string
+      data?: Record<string, unknown>
+    }) => void
+  ): (() => void) => {
+    const listener = (_: IpcRendererEvent, event: unknown): void => callback(event as never)
+    ipcRenderer.on('kimi-oauth-event', listener)
+    return () => ipcRenderer.removeListener('kimi-oauth-event', listener)
+  },
 
   // Notifications
   showNotification: (options: Electron.NotificationConstructorOptions): Promise<unknown> =>

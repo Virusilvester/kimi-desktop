@@ -71,14 +71,14 @@ function App(): React.JSX.Element {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null)
   const [isOffline, setIsOffline] = useState(!navigator.onLine)
-  const [hasApiKey, setHasApiKey] = useState(false)
+  const [hasSession, setHasSession] = useState(false)
 
-  const checkApiKey = useCallback(async (): Promise<void> => {
+  const checkSession = useCallback(async (): Promise<void> => {
     try {
-      const apiData = await window.api?.getApiKey?.()
-      setHasApiKey(!!apiData?.apiKey)
+      const status = await window.api?.oauthStatus?.()
+      setHasSession(!!status?.loggedIn)
     } catch (error) {
-      console.error('Failed to check API key:', error)
+      console.error('Failed to check OAuth session:', error)
     }
   }, [])
 
@@ -86,8 +86,8 @@ function App(): React.JSX.Element {
     // Initialize offline manager
     offlineManager.init().catch(console.error)
 
-    // Check for API key
-    void checkApiKey()
+    // Check for Kimi Code OAuth session
+    void checkSession()
 
     // Listen for settings shortcut from main process
     const unsubscribeSettings = window.api?.onOpenSettings?.(() => {
@@ -111,7 +111,7 @@ function App(): React.JSX.Element {
       unsubscribeSettings?.()
       unsubscribeNavigate?.()
     }
-  }, [checkApiKey])
+  }, [checkSession])
 
   const handleSelectConversation = useCallback((conversation: Conversation) => {
     setCurrentConversation(conversation)
@@ -133,7 +133,7 @@ function App(): React.JSX.Element {
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenSidebar={() => setIsSidebarOpen(true)}
           isOffline={isOffline}
-          hasApiKey={hasApiKey}
+          hasSession={hasSession}
         />
 
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex' }}>
@@ -148,8 +148,8 @@ function App(): React.JSX.Element {
             <KimiWebView
               currentConversation={currentConversation}
               isOffline={isOffline}
-              hasApiKey={hasApiKey}
-              onApiKeyRequired={() => setIsSettingsOpen(true)}
+              hasSession={hasSession}
+              onAuthRequired={() => setIsSettingsOpen(true)}
             />
           </div>
         </div>
@@ -158,7 +158,7 @@ function App(): React.JSX.Element {
           isOpen={isSettingsOpen}
           onClose={() => {
             setIsSettingsOpen(false)
-            checkApiKey() // Refresh API key status
+            checkSession() // Refresh OAuth session status
           }}
         />
       </div>

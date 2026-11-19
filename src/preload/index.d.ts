@@ -50,26 +50,32 @@ declare global {
       exportConversations: () => Promise<any[]>
       importConversations: (data: any[]) => Promise<{ success: boolean }>
 
-      // CRITICAL FIX: API Proxy - Bypass CSP restrictions
-      kimiApiRequest: (requestData: {
-        endpoint: string
-        apiKey: string
-        method: string
-        path: string
-        body?: any
-      }) => Promise<{
+      // CRITICAL FIX: API Proxy - Bypass CSP restrictions (Kimi Code OAuth session)
+      kimiApiRequest: (requestData: { method: string; path: string; body?: any }) => Promise<{
         success: boolean
         status?: number
         data?: any
-        error?: string
+        error?: string | null
       }>
 
-      // API Key management for Kimi API
-      getApiKey: () => Promise<{ apiKey: string; endpoint: string }>
-      saveApiKey: (
-        apiKey: string,
-        endpoint: string
-      ) => Promise<{ success: boolean; error?: string }>
+      // Kimi Code OAuth (Device Authorization Grant)
+      oauthStatus: () => Promise<{
+        loggedIn: boolean
+        expiresAt?: number
+        models: Array<{ id: string; display_name: string | null; context_length: number }>
+        selectedModel: string | null
+      }>
+      oauthLogin: () => Promise<{ started: boolean }>
+      oauthCancel: () => Promise<{ success: boolean }>
+      oauthLogout: () => Promise<{ success: boolean }>
+      oauthSelectModel: (modelId: string) => Promise<{ success: boolean; error?: string }>
+      onOAuthEvent: (
+        callback: (event: {
+          type: 'verification_url' | 'waiting' | 'success' | 'error'
+          message: string
+          data?: Record<string, unknown>
+        }) => void
+      ) => () => void
 
       // Notifications
       showNotification: (options: { title: string; body: string }) => Promise<void>

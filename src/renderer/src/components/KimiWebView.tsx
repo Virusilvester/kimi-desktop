@@ -24,15 +24,15 @@ type WebviewConsoleMessageEvent = Event & {
 interface KimiWebViewProps {
   currentConversation: Conversation | null
   isOffline: boolean
-  hasApiKey: boolean
-  onApiKeyRequired: () => void
+  hasSession: boolean
+  onAuthRequired: () => void
 }
 
 export default function KimiWebView({
   currentConversation,
   isOffline,
-  hasApiKey,
-  onApiKeyRequired
+  hasSession,
+  onAuthRequired
 }: KimiWebViewProps): React.JSX.Element {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
     navigator.onLine ? 'online' : 'offline'
@@ -192,7 +192,7 @@ export default function KimiWebView({
     const handleNavigate = (path: string): void => {
       const webview = webviewRef.current
       if (webview && path !== 'settings') {
-        const url = path.startsWith('http') ? path : `https://kimi.com${path}`
+        const url = path.startsWith('http') ? path : `https://kimi.ai${path}`
         webview.src = url
       }
     }
@@ -211,12 +211,12 @@ export default function KimiWebView({
     }
   }, [])
 
-  // CRITICAL FIX: Use API proxy to bypass CSP restrictions
+  // CRITICAL FIX: Use API proxy (Kimi Code OAuth session) to bypass CSP restrictions
   const handleSendMessage = async (): Promise<void> => {
     if (!inputValue.trim()) return
 
-    if (!hasApiKey) {
-      onApiKeyRequired()
+    if (!hasSession) {
+      onAuthRequired()
       return
     }
 
@@ -232,20 +232,19 @@ export default function KimiWebView({
     setIsGenerating(true)
 
     try {
-      // Get API credentials
-      const apiData = await window.api?.getApiKey?.()
-      if (!apiData?.apiKey) {
-        throw new Error('No API key available')
+      // Resolve the selected model from the OAuth session
+      const status = await window.api?.oauthStatus?.()
+      const model = status?.selectedModel || status?.models?.[0]?.id
+      if (!model) {
+        throw new Error('No model available. Please log in again.')
       }
 
       // CRITICAL: Use main process proxy to bypass CSP
       const result = await window.api?.kimiApiRequest?.({
-        endpoint: apiData.endpoint,
-        apiKey: apiData.apiKey,
         method: 'POST',
         path: '/chat/completions',
         body: {
-          model: 'moonshot-v1-8k',
+          model,
           messages: [...(activeConversation?.messages || []), ...localMessages, newMessage].map(
             (m) => ({ role: m.role, content: m.content })
           )
@@ -325,7 +324,7 @@ export default function KimiWebView({
             </div>
             <div className="offline-badges">
               <span className="offline-badge">Offline Mode</span>
-              {hasApiKey && <span className="api-ready">API Ready</span>}
+              {hasSession && <span className="api-ready">Kimi Code Ready</span>}
             </div>
           </div>
 
@@ -373,12 +372,16 @@ export default function KimiWebView({
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-              placeholder={hasApiKey ? 'Type your message...' : 'Add API key in settings to chat'}
+              placeholder={
+                hasSession
+                  ? 'Type your message...'
+                  : 'Log in with your Kimi account in settings to chat'
+              }
               disabled={isGenerating}
             />
             <button
               onClick={handleSendMessage}
-              disabled={!inputValue.trim() || isGenerating || !hasApiKey}
+              disabled={!inputValue.trim() || isGenerating || !hasSession}
               className="send-btn"
             >
               {isGenerating ? '⏳' : '➤'}
@@ -387,9 +390,9 @@ export default function KimiWebView({
 
           <div className="offline-notice">
             <p>
-              {hasApiKey
+              {hasSession
                 ? "You're in offline mode. Messages are saved locally and will persist."
-                : 'Add your Kimi API key in settings to enable chat functionality.'}
+                : 'Log in with your Kimi account (Settings → Kimi Account) to enable chat functionality.'}
             </p>
             <div className="notice-actions">
               <button className="btn-secondary" onClick={handleNewConversation}>
@@ -447,7 +450,7 @@ export default function KimiWebView({
       {/* eslint-disable react/no-unknown-property */}
       <webview
         ref={webviewRef}
-        src="https://kimi.com"
+        src="https://kimi.ai"
         className="kimi-webview"
         partition="persist:kimi"
         allowpopups={true}

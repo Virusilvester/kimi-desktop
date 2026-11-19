@@ -14,8 +14,12 @@
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .settings-modal {
@@ -33,11 +37,11 @@
 }
 
 @keyframes slideUp {
-  from { 
+  from {
     opacity: 0;
     transform: translateY(20px);
   }
-  to { 
+  to {
     opacity: 1;
     transform: translateY(0);
   }
@@ -159,7 +163,7 @@
 }
 
 .setting-item select,
-.setting-item input[type="number"] {
+.setting-item input[type='number'] {
   background: #222;
   border: 1px solid #333;
   color: #fff;
@@ -169,7 +173,7 @@
   min-width: 150px;
 }
 
-.setting-item input[type="number"]:disabled {
+.setting-item input[type='number']:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -200,7 +204,7 @@
 }
 
 .toggle-slider:before {
-  content: "";
+  content: '';
   position: absolute;
   height: 18px;
   width: 18px;
@@ -369,7 +373,7 @@
   background: rgba(220, 53, 69, 0.05);
 }
 
-.radio-label input[type="radio"] {
+.radio-label input[type='radio'] {
   margin-top: 2px;
 }
 
@@ -506,22 +510,22 @@
     max-height: none;
     border-radius: 0;
   }
-  
+
   .settings-content {
     flex-direction: column;
   }
-  
+
   .settings-sidebar {
     width: 100%;
     flex-direction: row;
     overflow-x: auto;
     padding: 8px;
   }
-  
+
   .settings-sidebar button {
     white-space: nowrap;
   }
-  
+
   .info-grid {
     grid-template-columns: 1fr;
   }
@@ -732,7 +736,7 @@
   .api-actions {
     flex-direction: column;
   }
-  
+
   .api-actions button {
     width: 100%;
   }
@@ -799,4 +803,31 @@
   background: #222;
   color: #fff;
   padding: 8px;
+}
+
+.oauth-verify {
+  background: rgba(76, 175, 80, 0.08);
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 16px 0;
+}
+
+.oauth-verify p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #aaa;
+}
+
+.oauth-verify code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.oauth-verify a {
+  color: #4caf50;
+  font-size: 13px;
+  word-break: break-all;
 }

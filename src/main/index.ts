@@ -15,8 +15,16 @@ import { join } from 'path'
 import fs from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-
-// ... (keep all the interfaces and default values from previous version)
+import {
+  startLogin,
+  cancelOngoingLogin,
+  getStatus as getOAuthStatus,
+  logout as oauthLogout,
+  selectModel as oauthSelectModel,
+  ensureFreshAccessToken,
+  forceRefreshAccessToken,
+  CODING_API_BASE
+} from './kimi-oauth'
 
 // Window state management
 interface WindowState {
@@ -41,8 +49,6 @@ interface AppSettings {
   spellCheck: boolean
   hardwareAcceleration: boolean
   cacheSize: number
-  kimiApiKey?: string
-  kimiApiEndpoint?: string
 }
 
 // Global window reference - MUST be global to prevent GC
@@ -71,9 +77,7 @@ const defaultSettings: AppSettings = {
   fontSize: 'medium',
   spellCheck: true,
   hardwareAcceleration: true,
-  cacheSize: 0,
-  kimiApiKey: '',
-  kimiApiEndpoint: 'https://api.moonshot.cn/v1'
+  cacheSize: 0
 }
 
 // Get paths
@@ -87,10 +91,6 @@ function getSettingsPath(): string {
 
 function getConversationsPath(): string {
   return join(app.getPath('userData'), 'conversations.json')
-}
-
-function getApiKeyPath(): string {
-  return join(app.getPath('userData'), 'api-key.enc')
 }
 
 // Read saved window state
@@ -429,6 +429,7 @@ ipcMain.handle('clear-data', async (_, type: 'all' | 'cache' | 'history' | 'cook
         await ses.clearCache()
         await ses.clearCodeCaches({})
         await ses.clearAuthCache()
+        oauthLogout()
         // Clear settings
         try {
           const settingsPath = getSettingsPath()
@@ -469,33 +470,44 @@ ipcMain.handle('import-conversations', async (_, data) => {
   return { success: true }
 })
 
-// CRITICAL FIX: API Proxy - Make API calls from main process to bypass CSP
+// API Proxy through the Kimi Code OAuth session (main process bypasses renderer CSP)
 ipcMain.handle(
   'kimi-api-request',
   async (
     _,
     requestData: {
-      endpoint: string
-      apiKey: string
       method: string
       path: string
       body?: any
     }
   ) => {
-    console.log('[API Proxy] Request to:', requestData.path)
-
     try {
-      const url = `${requestData.endpoint}${requestData.path}`
+      let accessToken = await ensureFreshAccessToken()
+      if (!accessToken) {
+        return { success: false, error: 'Not logged in to Kimi account' }
+      }
 
-      // Use fetch from the main process to bypass CSP
-      const response = await fetch(url, {
-        method: requestData.method,
-        headers: {
-          Authorization: `Bearer ${requestData.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: requestData.body ? JSON.stringify(requestData.body) : undefined
-      })
+      const url = `${CODING_API_BASE}${requestData.path}`
+      const doFetch = async (): Promise<Response> =>
+        fetch(url, {
+          method: requestData.method,
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: requestData.body ? JSON.stringify(requestData.body) : undefined
+        })
+
+      let response = await doFetch()
+
+      // On 401 try one forced token refresh and retry the request
+      if (response.status === 401) {
+        accessToken = await forceRefreshAccessToken()
+        if (!accessToken) {
+          return { success: false, status: 401, error: 'Session expired, please log in again' }
+        }
+        response = await doFetch()
+      }
 
       const data = await response.json()
 
@@ -515,32 +527,30 @@ ipcMain.handle(
   }
 )
 
-// API Key management
-ipcMain.handle('get-api-key', async () => {
-  try {
-    const keyPath = getApiKeyPath()
-    if (!fs.existsSync(keyPath)) return { apiKey: '', endpoint: defaultSettings.kimiApiEndpoint }
-    const encrypted = fs.readFileSync(keyPath, 'utf-8')
-    // Simple obfuscation - in production use proper encryption
-    const decrypted = Buffer.from(encrypted, 'base64').toString('utf-8')
-    const data = JSON.parse(decrypted)
-    return data
-  } catch {
-    return { apiKey: '', endpoint: defaultSettings.kimiApiEndpoint }
-  }
+// Kimi Code OAuth (Device Authorization Grant) handlers
+ipcMain.handle('kimi-oauth-status', async () => {
+  return getOAuthStatus()
 })
 
-ipcMain.handle('save-api-key', async (_, apiKey: string, endpoint: string) => {
-  try {
-    const keyPath = getApiKeyPath()
-    // Simple obfuscation - in production use proper encryption
-    const data = JSON.stringify({ apiKey, endpoint, savedAt: Date.now() })
-    const encrypted = Buffer.from(data).toString('base64')
-    fs.writeFileSync(keyPath, encrypted, 'utf-8')
-    return { success: true }
-  } catch (error) {
-    return { success: false, error: String(error) }
-  }
+ipcMain.handle('kimi-oauth-login', async () => {
+  void startLogin((event) => {
+    mainWindow?.webContents.send('kimi-oauth-event', event)
+  })
+  return { started: true }
+})
+
+ipcMain.handle('kimi-oauth-cancel', async () => {
+  cancelOngoingLogin()
+  return { success: true }
+})
+
+ipcMain.handle('kimi-oauth-logout', async () => {
+  oauthLogout()
+  return { success: true }
+})
+
+ipcMain.handle('kimi-oauth-select-model', async (_, modelId: string) => {
+  return oauthSelectModel(modelId)
 })
 
 // Notification handler
@@ -590,21 +600,24 @@ app.whenReady().then(() => {
     app.disableHardwareAcceleration()
   }
 
-  // CRITICAL FIX: Updated CSP to allow Moonshot API
+  // CRITICAL FIX: Updated CSP to allow Kimi AI web app and Kimi Code API
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     console.log('[CSP] Setting CSP for:', details.url)
 
     // Define allowed sources
-    const defaultSrc = "'self' https://kimi.com https://*.kimi.com https://api.moonshot.cn"
-    const scriptSrc = "'self' 'unsafe-inline' https://kimi.com https://*.kimi.com"
-    const styleSrc = "'self' 'unsafe-inline' https://kimi.com https://*.kimi.com"
+    const defaultSrc =
+      "'self' https://kimi.ai https://*.kimi.ai https://kimi.com https://*.kimi.com"
+    const scriptSrc =
+      "'self' 'unsafe-inline' https://kimi.ai https://*.kimi.ai https://kimi.com https://*.kimi.com"
+    const styleSrc =
+      "'self' 'unsafe-inline' https://kimi.ai https://*.kimi.ai https://kimi.com https://*.kimi.com"
     const imgSrc = "'self' data: blob: https:"
-    const fontSrc = "'self' https://kimi.com https://*.kimi.com"
-    const frameSrc = "'self' https://kimi.com"
+    const fontSrc = "'self' https://kimi.ai https://*.kimi.ai https://kimi.com https://*.kimi.com"
+    const frameSrc = "'self' https://kimi.ai https://kimi.com"
 
-    // CRITICAL: connect-src must include the Moonshot API
+    // CRITICAL: connect-src must include the Kimi Code API and Moonshot CDN
     const connectSrc =
-      "'self' https://kimi.com https://*.kimi.com wss://*.kimi.com https://api.moonshot.cn https://*.moonshot.cn"
+      "'self' https://kimi.ai https://*.kimi.ai wss://*.kimi.ai https://kimi.com https://*.kimi.com wss://*.kimi.com https://api.kimi.com https://*.moonshot.ai"
 
     const cspString = [
       `default-src ${defaultSrc}`,

@@ -21,9 +21,11 @@ interface AppSettings {
   cacheSize: number
 }
 
-interface ApiConfig {
-  apiKey: string
-  endpoint: string
+interface OAuthStatus {
+  loggedIn: boolean
+  expiresAt?: number
+  models: Array<{ id: string; display_name: string | null; context_length: number }>
+  selectedModel: string | null
 }
 
 const defaultSettings: AppSettings = {
@@ -41,26 +43,27 @@ const defaultSettings: AppSettings = {
   cacheSize: 0
 }
 
-// Available endpoints
-const API_ENDPOINTS = [
-  { value: 'https://api.moonshot.cn/v1', label: 'China Mainland (api.moonshot.cn)', region: 'CN' },
-  { value: 'https://api.moonshot.ai/v1', label: 'International (api.moonshot.ai)', region: 'INTL' }
-]
+// Available endpoints removed: offline chat now uses the Kimi Code OAuth
+// session (https://api.kimi.com/coding/v1) instead of Moonshot API keys.
 
 export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.Element | null {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings)
-  const [apiConfig, setApiConfig] = useState<ApiConfig>({
-    apiKey: '',
-    endpoint: 'https://api.moonshot.cn/v1'
-  })
-  const [activeTab, setActiveTab] = useState<'general' | 'api' | 'privacy' | 'advanced'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'kimi' | 'privacy' | 'advanced'>('general')
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const [clearType, setClearType] = useState<'all' | 'cache' | 'history' | 'cookies'>('all')
   const [storageInfo, setStorageInfo] = useState({ used: 0, quota: 0 })
   const [isClearing, setIsClearing] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  const [apiError, setApiError] = useState<string | null>(null)
+  const [oauthStatus, setOauthStatus] = useState<OAuthStatus>({
+    loggedIn: false,
+    models: [],
+    selectedModel: null
+  })
+  const [oauthPhase, setOauthPhase] = useState<'idle' | 'waiting' | 'error'>('idle')
+  const [oauthMessage, setOauthMessage] = useState<string | null>(null)
+  const [verificationUrl, setVerificationUrl] = useState<string | null>(null)
+  const [userCode, setUserCode] = useState<string | null>(null)
 
   useEffect(() => {
     if (isOpen) {
@@ -68,9 +71,46 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
     }
   }, [isOpen])
 
+  // Subscribe to OAuth flow events from the main process
+  useEffect(() => {
+    const unsubscribe = window.api?.onOAuthEvent?.((event) => {
+      switch (event.type) {
+        case 'verification_url':
+          setOauthPhase('waiting')
+          setVerificationUrl(String(event.data?.verification_url || ''))
+          setUserCode(String(event.data?.user_code || ''))
+          setOauthMessage(null)
+          break
+        case 'waiting':
+          setOauthMessage(event.message)
+          break
+        case 'success':
+          setOauthPhase('idle')
+          setOauthMessage(null)
+          setVerificationUrl(null)
+          setUserCode(null)
+          void refreshOAuthStatus()
+          break
+        case 'error':
+          setOauthPhase('error')
+          setOauthMessage(event.message)
+          break
+      }
+    })
+    return () => unsubscribe?.()
+  }, [])
+
+  const refreshOAuthStatus = async (): Promise<void> => {
+    try {
+      const status = await window.api?.oauthStatus?.()
+      if (status) setOauthStatus(status)
+    } catch (error) {
+      console.error('Failed to load OAuth status:', error)
+    }
+  }
+
   const loadData = async (): Promise<void> => {
     setIsLoading(true)
-    setApiError(null)
     try {
       // Load settings
       const savedSettings = await window.api?.getSettings?.()
@@ -78,11 +118,8 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
         setSettings({ ...defaultSettings, ...savedSettings })
       }
 
-      // Load API key
-      const apiData = await window.api?.getApiKey?.()
-      if (apiData) {
-        setApiConfig(apiData)
-      }
+      // Load OAuth status
+      await refreshOAuthStatus()
 
       // Load storage info
       await loadStorageInfo()
@@ -133,22 +170,34 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
     await saveSettings(newSettings)
   }
 
-  const handleSaveApiKey = async (): Promise<void> => {
-    setSaveStatus('saving')
-    setApiError(null)
+  const handleOAuthLogin = async (): Promise<void> => {
+    setOauthPhase('waiting')
+    setOauthMessage('Starting login...')
+    setVerificationUrl(null)
+    setUserCode(null)
     try {
-      const result = await window.api?.saveApiKey?.(apiConfig.apiKey, apiConfig.endpoint)
-      if (result?.success) {
-        setSaveStatus('saved')
-        setTimeout(() => setSaveStatus('idle'), 2000)
-      } else {
-        setSaveStatus('error')
-        setApiError(result?.error || 'Failed to save API key')
-      }
+      await window.api?.oauthLogin?.()
     } catch (error) {
-      console.error('Failed to save API key:', error)
-      setSaveStatus('error')
-      setApiError((error as Error).message)
+      setOauthPhase('error')
+      setOauthMessage((error as Error).message)
+    }
+  }
+
+  const handleOAuthLogout = async (): Promise<void> => {
+    try {
+      await window.api?.oauthLogout?.()
+      setOauthStatus({ loggedIn: false, models: [], selectedModel: null })
+      setOauthPhase('idle')
+      setOauthMessage(null)
+    } catch (error) {
+      console.error('Failed to log out:', error)
+    }
+  }
+
+  const handleModelSelect = async (modelId: string): Promise<void> => {
+    const result = await window.api?.oauthSelectModel?.(modelId)
+    if (result?.success) {
+      setOauthStatus((prev) => ({ ...prev, selectedModel: modelId }))
     }
   }
 
@@ -229,61 +278,6 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
     }
   }
 
-  // CRITICAL FIX: Use API proxy instead of direct fetch to bypass CSP
-  const testApiConnection = async (): Promise<void> => {
-    if (!apiConfig.apiKey) {
-      setApiError('Please enter an API key first')
-      return
-    }
-
-    setSaveStatus('saving')
-    setApiError(null)
-
-    try {
-      // Use main process proxy to bypass CSP restrictions
-      const result = await window.api?.kimiApiRequest?.({
-        endpoint: apiConfig.endpoint,
-        apiKey: apiConfig.apiKey,
-        method: 'GET',
-        path: '/models'
-      })
-
-      if (result?.success) {
-        alert(
-          `✅ API connection successful!\\n\\nFound ${result.data.data?.length || 0} models.\\n\\nYour API key is working correctly.`
-        )
-        setSaveStatus('saved')
-      } else {
-        // Handle specific error cases
-        let errorMsg = result?.error || 'Unknown error'
-
-        if (result?.status === 401) {
-          errorMsg =
-            `Invalid Authentication (401)\\n\\n` +
-            `This usually means:\\n` +
-            `1. Wrong API endpoint selected (China vs International)\\n` +
-            `2. Invalid or expired API key\\n` +
-            `3. API key from wrong platform\\n\\n` +
-            `Current endpoint: ${apiConfig.endpoint}\\n` +
-            `Try switching to the other endpoint above.`
-        } else if (result?.status === 403) {
-          errorMsg = `Access Forbidden (403)\\n\\nYour API key may not have permission to access this resource.`
-        } else if (result?.status === 429) {
-          errorMsg = `Rate Limited (429)\\n\\nToo many requests. Please wait a moment and try again.`
-        }
-
-        setApiError(errorMsg)
-        setSaveStatus('error')
-      }
-    } catch (error) {
-      const errorMsg = (error as Error).message
-      setApiError(`Connection failed: ${errorMsg}`)
-      setSaveStatus('error')
-    }
-
-    setTimeout(() => setSaveStatus('idle'), 2000)
-  }
-
   if (!isOpen) return null
 
   return (
@@ -316,10 +310,10 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
                 <span>⚙️</span> General
               </button>
               <button
-                className={activeTab === 'api' ? 'active' : ''}
-                onClick={() => setActiveTab('api')}
+                className={activeTab === 'kimi' ? 'active' : ''}
+                onClick={() => setActiveTab('kimi')}
               >
-                <span>🔑</span> API Key
+                <span>🤖</span> Kimi Account
               </button>
               <button
                 className={activeTab === 'privacy' ? 'active' : ''}
@@ -484,98 +478,104 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
                 </div>
               )}
 
-              {activeTab === 'api' && (
+              {activeTab === 'kimi' && (
                 <div className="settings-section">
-                  <h3>Kimi API Configuration</h3>
+                  <h3>Kimi Account</h3>
 
                   <div className="api-info">
-                    <p>Configure your Kimi API key to enable offline chat functionality.</p>
-                    <a
-                      href="https://platform.moonshot.ai"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Get API key from Moonshot AI →
-                    </a>
+                    <p>
+                      Connect your <strong>Kimi Code Plan</strong> subscription to enable offline
+                      chat. Authorization uses the same device login flow as the official Kimi CLI.
+                    </p>
                   </div>
 
-                  {/* CRITICAL FIX: Endpoint selector */}
-                  <div className="setting-item vertical">
-                    <label>
-                      <span>API Region</span>
-                      <small>Select the correct region for your API key</small>
-                    </label>
-                    <select
-                      value={apiConfig.endpoint}
-                      onChange={(e) => setApiConfig({ ...apiConfig, endpoint: e.target.value })}
-                      className="endpoint-select"
-                    >
-                      {API_ENDPOINTS.map((ep) => (
-                        <option key={ep.value} value={ep.value}>
-                          {ep.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  {!oauthStatus.loggedIn ? (
+                    <>
+                      <div className="setting-item vertical">
+                        <label>
+                          <span>Status</span>
+                          <small>Not connected</small>
+                        </label>
+                        <div className="api-actions">
+                          <button
+                            className="btn-primary"
+                            onClick={handleOAuthLogin}
+                            disabled={oauthPhase === 'waiting'}
+                          >
+                            {oauthPhase === 'waiting'
+                              ? 'Waiting for authorization...'
+                              : '🔐 Log in with Kimi'}
+                          </button>
+                        </div>
+                      </div>
 
-                  <div className="endpoint-warning">
-                    <strong>⚠️ Important:</strong> API keys from{' '}
-                    <a href="https://platform.moonshot.cn" target="_blank" rel="noreferrer">
-                      platform.moonshot.cn
-                    </a>{' '}
-                    and{' '}
-                    <a href="https://platform.moonshot.ai" target="_blank" rel="noreferrer">
-                      platform.moonshot.ai
-                    </a>{' '}
-                    are completely separate. Make sure you select the correct region for your key.
-                  </div>
+                      {verificationUrl && (
+                        <div className="oauth-verify">
+                          <p>
+                            Open this URL in your browser to authorize (code:{' '}
+                            <code>{userCode}</code>):
+                          </p>
+                          <a href={verificationUrl} target="_blank" rel="noopener noreferrer">
+                            {verificationUrl}
+                          </a>
+                        </div>
+                      )}
 
-                  <div className="setting-item vertical">
-                    <label>
-                      <span>API Key</span>
-                      <small>Your Kimi API key (starts with sk-)</small>
-                    </label>
-                    <input
-                      type="password"
-                      value={apiConfig.apiKey}
-                      onChange={(e) => {
-                        setApiConfig({ ...apiConfig, apiKey: e.target.value })
-                        setApiError(null)
-                      }}
-                      placeholder="sk-..."
-                      className="text-input"
-                    />
-                  </div>
+                      {oauthMessage && (
+                        <div className={oauthPhase === 'error' ? 'api-error' : 'api-help'}>
+                          <p>{oauthMessage}</p>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="setting-item vertical">
+                        <label>
+                          <span>Status</span>
+                          <small>
+                            Connected
+                            {oauthStatus.expiresAt
+                              ? ` (session renews ${new Date(oauthStatus.expiresAt * 1000).toLocaleString()})`
+                              : ''}
+                          </small>
+                        </label>
+                        <div className="api-actions">
+                          <button className="btn-secondary" onClick={handleOAuthLogout}>
+                            🚪 Log out
+                          </button>
+                        </div>
+                      </div>
 
-                  {apiError && (
-                    <div className="api-error">
-                      <pre>{apiError}</pre>
-                    </div>
+                      {oauthStatus.models.length > 0 && (
+                        <div className="setting-item vertical">
+                          <label>
+                            <span>Model</span>
+                            <small>Used for offline chat</small>
+                          </label>
+                          <select
+                            value={oauthStatus.selectedModel || ''}
+                            onChange={(e) => handleModelSelect(e.target.value)}
+                            className="endpoint-select"
+                          >
+                            {oauthStatus.models.map((model) => (
+                              <option key={model.id} value={model.id}>
+                                {model.display_name || model.id}
+                                {model.context_length
+                                  ? ` (${Math.round(model.context_length / 1024)}k ctx)`
+                                  : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </>
                   )}
 
-                  <div className="api-actions">
-                    <button
-                      className="btn-primary"
-                      onClick={handleSaveApiKey}
-                      disabled={saveStatus === 'saving'}
-                    >
-                      {saveStatus === 'saving' ? 'Saving...' : '💾 Save API Key'}
-                    </button>
-                    <button
-                      className="btn-secondary"
-                      onClick={testApiConnection}
-                      disabled={!apiConfig.apiKey || saveStatus === 'saving'}
-                    >
-                      🧪 Test Connection
-                    </button>
-                  </div>
-
                   <div className="api-help">
-                    <h4>About Offline Mode with API</h4>
+                    <h4>About Offline Mode</h4>
                     <ul>
-                      <li>Your API key is stored locally and encrypted</li>
-                      <li>When offline, the app will use cached conversations</li>
-                      <li>New messages can be queued and sent when back online</li>
+                      <li>Tokens are stored locally with restricted file permissions</li>
+                      <li>Sessions auto-refresh in the background before expiry</li>
                       <li>
                         API calls are proxied through the main process to bypass CSP restrictions
                       </li>
