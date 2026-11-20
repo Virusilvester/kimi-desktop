@@ -1,6 +1,6 @@
 {
   "name": "kimi-dock",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Kimi Dock - desktop dock for Kimi AI (fork of kimi-desktop, uses Kimi Code Plan)",
   "main": "./out/main/index.js",
   "author": "heni <eugene.krokhalev@gmail.com>",
@@ -17,6 +17,7 @@
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
     "build": "npm run typecheck && electron-vite build",
+    "rebuild": "rm -rf out && npm run build",
     "postinstall": "electron-builder install-app-deps",
     "release": "npm run build && electron-builder",
     "build:win": "npm run build && electron-builder --win",

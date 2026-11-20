@@ -32,6 +32,93 @@ import {
   CLIPBOARD_WRITE_FORMATS
 } from './clipboard'
 
+// Origins allowed to open a popup inside the app (login flows); everything
+// else is redirected to the system browser.
+const AUTH_POPUP_HOSTS = new Set(['accounts.google.com'])
+const APP_CALLBACK_HOSTS = new Set(['kimi.ai', 'www.kimi.ai'])
+
+const isAllowedAuthUrl = (rawUrl: string): boolean => {
+  try {
+    return AUTH_POPUP_HOSTS.has(new URL(rawUrl).host)
+  } catch {
+    return false
+  }
+}
+
+const routeWindowOpen = (details: Electron.HandlerDetails): Electron.WindowOpenHandlerResponse => {
+  if (isAllowedAuthUrl(details.url)) {
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        width: 480,
+        height: 640,
+        autoHideMenuBar: true,
+        webPreferences: {
+          sandbox: true,
+          contextIsolation: true,
+          nodeIntegration: false
+        }
+      }
+    }
+  }
+  try {
+    const protocol = new URL(details.url).protocol
+    if (protocol === 'https:' || protocol === 'http:' || protocol === 'mailto:') {
+      shell.openExternal(details.url)
+    }
+  } catch {
+    // unparseable URL: drop it
+  }
+  return { action: 'deny' }
+}
+
+// Global popup lifecycle management for in-app auth popups (their window.open
+// routing lives on the embedder — see routeWindowOpen; guest popups never
+// reach a per-guest handler).
+const isAllowedPopupHost = (host: string): boolean =>
+  AUTH_POPUP_HOSTS.has(host) || APP_CALLBACK_HOSTS.has(host)
+
+app.on('web-contents-created', (_, contents) => {
+  contents.setWindowOpenHandler(routeWindowOpen)
+  contents.on('did-create-window', (child) => {
+    // Match the opener's UA: Google's OAuth can refuse embedded UAs that
+    // advertise "Electron".
+    child.webContents.setUserAgent(contents.getUserAgent())
+
+    // Contain the popup: it may only ever visit the identity provider or
+    // return to the app origin — covers direct navigations and server-side
+    // redirects alike.
+    const guardNavigation = (event: Electron.Event, url: string): void => {
+      try {
+        if (!isAllowedPopupHost(new URL(url).host)) {
+          event.preventDefault()
+        }
+      } catch {
+        event.preventDefault()
+      }
+    }
+    child.webContents.on('will-navigate', guardNavigation)
+    child.webContents.on('will-redirect', guardNavigation)
+
+    // The popup's job ends when the provider redirects back to the app
+    // origin. Close only after the callback page finished loading — its
+    // in-page JS finalizes the session (the id_token arrives in the URL
+    // fragment, the server never sees it).
+    child.webContents.on('did-finish-load', () => {
+      const url = child.webContents.getURL()
+      try {
+        if (!APP_CALLBACK_HOSTS.has(new URL(url).host)) return
+      } catch {
+        return
+      }
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('auth-popup-finished')
+      }
+      child.close()
+    })
+  })
+})
+
 // Window state management
 interface WindowState {
   width: number
@@ -347,10 +434,10 @@ function createWindow(): void {
   })
 
   /* ---------- EXTERNAL LINKS HANDLING ---------- */
-  mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
-    return { action: 'deny' }
-  })
+  // window.open from ANY content (including the webview guest) is routed
+  // through the main window's handler — per-guest handlers never fire for
+  // webview guests.
+  mainWindow.webContents.setWindowOpenHandler(routeWindowOpen)
 
   // Log preload errors
   mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
@@ -817,13 +904,9 @@ app.whenReady().then(() => {
     })
   })
 
-  // Global handler for all webContents (including webviews)
-  app.on('web-contents-created', (_, contents) => {
-    contents.setWindowOpenHandler((details) => {
-      shell.openExternal(details.url)
-      return { action: 'deny' }
-    })
-  })
+  // (window.open routing is on the main window — see createWindow; popup
+  // lifecycle management is global — see the app.on('web-contents-created')
+  // handler at module level)
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)

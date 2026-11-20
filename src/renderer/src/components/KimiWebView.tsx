@@ -7,6 +7,7 @@ type ConnectionStatus = 'online' | 'offline' | 'checking' | 'error'
 type WebviewTag = HTMLElement & {
   src: string
   reload: () => void
+  executeJavaScript: (code: string) => Promise<unknown>
   addEventListener: (type: string, listener: EventListenerOrEventListenerObject) => void
   removeEventListener: (type: string, listener: EventListenerOrEventListenerObject) => void
 }
@@ -55,6 +56,15 @@ export default function KimiWebView({
       setLocalMessages([])
     }
   }, [currentConversation])
+
+  // Reload the webview after an in-app auth popup returns to the app origin,
+  // so the logged-in UI replaces the login screen.
+  useEffect(() => {
+    const unsubscribe = window.api?.onAuthPopupFinished?.(() => {
+      webviewRef.current?.reload()
+    })
+    return () => unsubscribe?.()
+  }, [])
 
   // Network status monitoring
   useEffect(() => {
@@ -173,17 +183,53 @@ export default function KimiWebView({
       }
     }
 
-    const timer = setTimeout(() => {
-      webview.addEventListener('did-finish-load', handleDidFinishLoad)
-      webview.addEventListener('did-fail-load', handleDidFailLoad as EventListener)
-      webview.addEventListener('console-message', handleConsoleMessage as EventListener)
-    }, 100)
+    // Google login: GIS only falls back to its OAuth popup flow when FedCM is
+    // unavailable, and this Chromium throws while parsing the FedCM options
+    // GIS sends — which GIS does not treat as "unavailable". Present FedCM as
+    // unavailable (NotSupportedError) so the button opens the OAuth popup,
+    // which the main process hosts in-app. Executed in the guest's main world
+    // via the webview element's executeJavaScript (preloads would run in an
+    // isolated world and never reach page JS). Injected on dom-ready AND on
+    // did-navigate — the library loads right after DOMContentLoaded and an
+    // early auto-prompt must find the patch already in place.
+    const injectFedcmPatch = (): void => {
+      webview
+        .executeJavaScript(
+          `(function () {
+          try {
+            const current = CredentialsContainer.prototype.get
+            if (String(current).includes('NotSupportedError')) return
+            CredentialsContainer.prototype.get = function (options) {
+              if (options && 'identity' in options) {
+                return Promise.reject(new DOMException('FedCM is not available', 'NotSupportedError'))
+              }
+              return current.call(this, options)
+            }
+          } catch (error) {
+            console.error('[kimi-dock] FedCM neutralization failed:', error)
+          }
+        })()`
+        )
+        .catch((error) => console.error('FedCM patch injection failed:', error))
+    }
+
+    const handleDomReady = (): void => injectFedcmPatch()
+    const handleDidNavigate = (): void => injectFedcmPatch()
+
+    webview.setAttribute('allowpopups', '')
+
+    webview.addEventListener('did-finish-load', handleDidFinishLoad)
+    webview.addEventListener('did-fail-load', handleDidFailLoad as EventListener)
+    webview.addEventListener('console-message', handleConsoleMessage as EventListener)
+    webview.addEventListener('dom-ready', handleDomReady)
+    webview.addEventListener('did-navigate', handleDidNavigate)
 
     return () => {
-      clearTimeout(timer)
       webview.removeEventListener('did-finish-load', handleDidFinishLoad)
       webview.removeEventListener('did-fail-load', handleDidFailLoad as EventListener)
       webview.removeEventListener('console-message', handleConsoleMessage as EventListener)
+      webview.removeEventListener('dom-ready', handleDomReady)
+      webview.removeEventListener('did-navigate', handleDidNavigate)
     }
   }, [retryCount])
 
@@ -453,7 +499,6 @@ export default function KimiWebView({
         src="https://kimi.ai"
         className="kimi-webview"
         partition="persist:kimi"
-        allowpopups={true}
         webpreferences="contextIsolation=yes, nodeIntegration=no, allowRunningInsecureContent=no, javascript=yes, plugins=no, experimentalFeatures=no"
         useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 KimiDesktop/1.0"
       />
