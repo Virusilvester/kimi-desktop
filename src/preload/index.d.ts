@@ -22,6 +22,9 @@ declare global {
       // Navigation
       onNavigateTo: (callback: (path: string) => void) => () => void
 
+      // Auth popup finished (login redirect returned to the app origin)
+      onAuthPopupFinished: (callback: () => void) => () => void
+
       // Settings
       onOpenSettings: (callback: () => void) => () => void
 

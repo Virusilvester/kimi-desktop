@@ -23,6 +23,13 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('navigate-to', listener)
   },
 
+  // Auth popup finished (identity provider redirected back to the app origin)
+  onAuthPopupFinished: (callback: () => void): (() => void) => {
+    const listener: () => void = () => callback()
+    ipcRenderer.on('auth-popup-finished', listener)
+    return () => ipcRenderer.removeListener('auth-popup-finished', listener)
+  },
+
   // Open settings
   onOpenSettings: (callback: () => void): (() => void) => {
     const listener: () => void = () => callback()

@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-11-20
+
+### Added
+
+- **Google sign-in in the webview** — "Continue with Google" now completes:
+  the app neutralizes FedCM in the guest page (Google Identity Services only
+  falls back to its OAuth popup when FedCM is unavailable; this Chromium
+  throws while parsing GIS's FedCM options, which GIS does not treat as
+  unavailable), hosts the resulting accounts.google.com popup in-app, and
+  closes it after the redirect back to kimi.ai, reloading the webview into
+  the logged-in state. Requires the `allowpopups` attribute on the webview
+  (set imperatively — React drops it from JSX).
+
+### Fixed
+
+- The webview silently dropped every `window.open` (including external
+  links) because the `allowpopups` attribute never made it into the DOM;
+  popups are now routed: identity-provider login popups stay in-app,
+  everything else opens in the system browser.
+
 ## [3.1.0] - 2026-11-20
 
 Kimi Dock releases (fork of kimi-desktop; versions before 3.0.0 belong to the
