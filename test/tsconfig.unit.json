@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "es2022",
+    "types": [],
+    "skipLibCheck": true,
+    "outDir": "../.tmp/unit-build"
+  },
+  "files": ["../src/renderer/src/utils/offlineManagerSchema.ts"]
+}

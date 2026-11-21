@@ -1,31 +1,15 @@
 import { useEffect, useState, useCallback } from 'react'
+import {
+  fromRecord,
+  migrateLegacyRecord,
+  toRecord,
+  type Conversation
+} from './offlineManagerSchema'
 
-export interface Conversation {
-  id: string
-  title: string
-  messages: Message[]
-  createdAt: number
-  updatedAt: number
-  isOffline: boolean | number // Changed to support both boolean and number (1/0)
-}
-
-export interface Message {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: number
-  attachments?: Attachment[]
-}
-
-export interface Attachment {
-  name: string
-  type: string
-  size: number
-  data?: string
-}
+export type { Attachment, Conversation, Message, SyncStatus } from './offlineManagerSchema'
 
 const DB_NAME = 'KimiOfflineDB'
-const DB_VERSION = 2 // Incremented to trigger schema update
+const DB_VERSION = 3
 const STORE_NAME = 'conversations'
 
 class OfflineManager {
@@ -45,19 +29,28 @@ class OfflineManager {
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result
 
-        // Delete old store if exists to recreate with proper schema
-        if (db.objectStoreNames.contains(STORE_NAME)) {
-          db.deleteObjectStore(STORE_NAME)
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' })
+          store.createIndex('updatedAt', 'updatedAt', { unique: false })
+          store.createIndex('isOffline', 'isOffline', { unique: false })
+          store.createIndex('hasPending', 'hasPending', { unique: false })
+          return
         }
 
-        // Create new store with proper indexes
-        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' })
+        const store = request.transaction!.objectStore(STORE_NAME)
+        if (!store.indexNames.contains('hasPending')) {
+          store.createIndex('hasPending', 'hasPending', { unique: false })
+        }
 
-        // Index for updatedAt (number)
-        store.createIndex('updatedAt', 'updatedAt', { unique: false })
-
-        // Index for isOffline - use number (1/0) instead of boolean
-        store.createIndex('isOffline', 'isOffline', { unique: false })
+        if (event.oldVersion < 3) {
+          const cursorRequest = store.openCursor()
+          cursorRequest.onsuccess = () => {
+            const cursor = cursorRequest.result
+            if (!cursor) return
+            cursor.update(migrateLegacyRecord(cursor.value as Conversation))
+            cursor.continue()
+          }
+        }
       }
     })
   }
@@ -71,27 +64,25 @@ class OfflineManager {
     this.listeners.forEach((cb) => cb())
   }
 
-  async saveConversation(conversation: Conversation): Promise<void> {
+  private async putRecord(data: Record<string, unknown>): Promise<void> {
     if (!this.db) await this.init()
 
     return new Promise((resolve, reject) => {
       const tx = this.db!.transaction([STORE_NAME], 'readwrite')
-      const store = tx.objectStore(STORE_NAME)
-
-      // Convert boolean to number for IndexedDB compatibility
-      const data = {
-        ...conversation,
-        isOffline: conversation.isOffline ? 1 : 0,
-        updatedAt: Date.now()
-      }
-
-      const request = store.put(data)
-      request.onsuccess = () => {
+      const request = tx.objectStore(STORE_NAME).put(data)
+      request.onerror = () => reject(request.error)
+      tx.oncomplete = () => {
         this.notify()
         resolve()
       }
-      request.onerror = () => reject(request.error)
     })
+  }
+
+  // Writes the conversation as given: updatedAt means "last user-visible
+  // activity" and is the caller's responsibility — operational writes must
+  // not bump it.
+  async saveConversation(conversation: Conversation): Promise<void> {
+    await this.putRecord(toRecord(conversation))
   }
 
   async getConversation(id: string): Promise<Conversation | null> {
@@ -99,16 +90,11 @@ class OfflineManager {
 
     return new Promise((resolve, reject) => {
       const tx = this.db!.transaction([STORE_NAME], 'readonly')
-      const store = tx.objectStore(STORE_NAME)
-      const request = store.get(id)
+      const request = tx.objectStore(STORE_NAME).get(id)
 
       request.onsuccess = () => {
-        const result = request.result
-        if (result) {
-          // Convert number back to boolean
-          result.isOffline = !!result.isOffline
-        }
-        resolve(result || null)
+        const result = request.result as Conversation | undefined
+        resolve(result ? fromRecord(result) : null)
       }
       request.onerror = () => reject(request.error)
     })
@@ -119,8 +105,7 @@ class OfflineManager {
 
     return new Promise((resolve, reject) => {
       const tx = this.db!.transaction([STORE_NAME], 'readonly')
-      const store = tx.objectStore(STORE_NAME)
-      const index = store.index('updatedAt')
+      const index = tx.objectStore(STORE_NAME).index('updatedAt')
       const request = index.openCursor(null, 'prev')
 
       const conversations: Conversation[] = []
@@ -128,10 +113,7 @@ class OfflineManager {
       request.onsuccess = (event) => {
         const cursor = (event.target as IDBRequest).result
         if (cursor) {
-          const data = cursor.value
-          // Convert number back to boolean
-          data.isOffline = !!data.isOffline
-          conversations.push(data)
+          conversations.push(fromRecord(cursor.value as Conversation))
           cursor.continue()
         } else {
           resolve(conversations)
@@ -142,14 +124,12 @@ class OfflineManager {
     })
   }
 
-  // CRITICAL FIX: Use number (1) instead of boolean (true) for IndexedDB query
   async getOfflineConversations(): Promise<Conversation[]> {
     if (!this.db) await this.init()
 
     return new Promise((resolve, reject) => {
       const tx = this.db!.transaction([STORE_NAME], 'readonly')
-      const store = tx.objectStore(STORE_NAME)
-      const index = store.index('isOffline')
+      const index = tx.objectStore(STORE_NAME).index('isOffline')
 
       // Use 1 instead of true for IndexedDB compatibility
       const request = index.openCursor(IDBKeyRange.only(1))
@@ -159,10 +139,7 @@ class OfflineManager {
       request.onsuccess = (event) => {
         const cursor = (event.target as IDBRequest).result
         if (cursor) {
-          const data = cursor.value
-          // Convert number back to boolean
-          data.isOffline = !!data.isOffline
-          conversations.push(data)
+          conversations.push(fromRecord(cursor.value as Conversation))
           cursor.continue()
         } else {
           // Sort by updatedAt descending
@@ -180,14 +157,12 @@ class OfflineManager {
 
     return new Promise((resolve, reject) => {
       const tx = this.db!.transaction([STORE_NAME], 'readwrite')
-      const store = tx.objectStore(STORE_NAME)
-      const request = store.delete(id)
-
-      request.onsuccess = () => {
+      const request = tx.objectStore(STORE_NAME).delete(id)
+      request.onerror = () => reject(request.error)
+      tx.oncomplete = () => {
         this.notify()
         resolve()
       }
-      request.onerror = () => reject(request.error)
     })
   }
 
@@ -219,14 +194,12 @@ class OfflineManager {
 
     return new Promise((resolve, reject) => {
       const tx = this.db!.transaction([STORE_NAME], 'readwrite')
-      const store = tx.objectStore(STORE_NAME)
-      const request = store.clear()
-
-      request.onsuccess = () => {
+      const request = tx.objectStore(STORE_NAME).clear()
+      request.onerror = () => reject(request.error)
+      tx.oncomplete = () => {
         this.notify()
         resolve()
       }
-      request.onerror = () => reject(request.error)
     })
   }
 
