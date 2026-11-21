@@ -183,53 +183,14 @@ export default function KimiWebView({
       }
     }
 
-    // Google login: GIS only falls back to its OAuth popup flow when FedCM is
-    // unavailable, and this Chromium throws while parsing the FedCM options
-    // GIS sends — which GIS does not treat as "unavailable". Present FedCM as
-    // unavailable (NotSupportedError) so the button opens the OAuth popup,
-    // which the main process hosts in-app. Executed in the guest's main world
-    // via the webview element's executeJavaScript (preloads would run in an
-    // isolated world and never reach page JS). Injected on dom-ready AND on
-    // did-navigate — the library loads right after DOMContentLoaded and an
-    // early auto-prompt must find the patch already in place.
-    const injectFedcmPatch = (): void => {
-      webview
-        .executeJavaScript(
-          `(function () {
-          try {
-            const current = CredentialsContainer.prototype.get
-            if (String(current).includes('NotSupportedError')) return
-            CredentialsContainer.prototype.get = function (options) {
-              if (options && 'identity' in options) {
-                return Promise.reject(new DOMException('FedCM is not available', 'NotSupportedError'))
-              }
-              return current.call(this, options)
-            }
-          } catch (error) {
-            console.error('[kimi-dock] FedCM neutralization failed:', error)
-          }
-        })()`
-        )
-        .catch((error) => console.error('FedCM patch injection failed:', error))
-    }
-
-    const handleDomReady = (): void => injectFedcmPatch()
-    const handleDidNavigate = (): void => injectFedcmPatch()
-
-    webview.setAttribute('allowpopups', '')
-
     webview.addEventListener('did-finish-load', handleDidFinishLoad)
     webview.addEventListener('did-fail-load', handleDidFailLoad as EventListener)
     webview.addEventListener('console-message', handleConsoleMessage as EventListener)
-    webview.addEventListener('dom-ready', handleDomReady)
-    webview.addEventListener('did-navigate', handleDidNavigate)
 
     return () => {
       webview.removeEventListener('did-finish-load', handleDidFinishLoad)
       webview.removeEventListener('did-fail-load', handleDidFailLoad as EventListener)
       webview.removeEventListener('console-message', handleConsoleMessage as EventListener)
-      webview.removeEventListener('dom-ready', handleDomReady)
-      webview.removeEventListener('did-navigate', handleDidNavigate)
     }
   }, [retryCount])
 
@@ -497,6 +458,12 @@ export default function KimiWebView({
       <webview
         ref={webviewRef}
         src="https://kimi.ai"
+        // allowpopups must be present at guest-attach time: a webview that
+        // gains the attribute later still drops every window.open from the
+        // guest (observed Electron 39) — the login popup never surfaces.
+        // Runtime wants a string (React drops boolean true for non-boolean
+        // attributes); @types/react declares boolean — cast to satisfy TS.
+        allowpopups={'true' as unknown as boolean}
         className="kimi-webview"
         partition="persist:kimi"
         webpreferences="contextIsolation=yes, nodeIntegration=no, allowRunningInsecureContent=no, javascript=yes, plugins=no, experimentalFeatures=no"

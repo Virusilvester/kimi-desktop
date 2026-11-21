@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.1] - 2026-11-21
+
+### Fixed
+
+- **Google sign-in actually opens the account-picker popup** — the 3.2.0 flow
+  never surfaced the popup: `allowpopups` was set on the webview imperatively
+  after guest attach, and a webview that gains the attribute later still drops
+  every `window.open` from the guest (observed Electron 39). The attribute is
+  now rendered by React at element creation, so it is present at attach time.
+- **FedCM neutralization is now deterministic** — instead of patching
+  `CredentialsContainer.prototype.get` from the embedder (which landed
+  unreliably after guest navigations), the app disables the `FedCm`
+  Chromium feature, so identity requests reject natively with
+  `NotSupportedError` and Google Identity Services reliably falls back to its
+  OAuth popup.
+
 ## [3.2.0] - 2026-11-20
 
 ### Added
@@ -16,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unavailable), hosts the resulting accounts.google.com popup in-app, and
   closes it after the redirect back to kimi.ai, reloading the webview into
   the logged-in state. Requires the `allowpopups` attribute on the webview
-  (set imperatively — React drops it from JSX).
+  (made reliable in 3.2.1: it must be present at guest-attach time).
 
 ### Fixed
 

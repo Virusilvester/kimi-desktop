@@ -32,6 +32,22 @@ import {
   CLIPBOARD_WRITE_FORMATS
 } from './clipboard'
 
+// Google login: GIS only falls back to its OAuth popup flow when FedCM is
+// unavailable. Disabling the FedCm feature makes navigator.credentials.get
+// reject identity requests natively with NotSupportedError — deterministic,
+// no page-JS patching. Merge with any features Electron already disables.
+{
+  const disabled = new Set(
+    app.commandLine
+      .getSwitchValue('disable-features')
+      .split(',')
+      .map((f) => f.trim())
+      .filter(Boolean)
+  )
+  disabled.add('FedCm')
+  app.commandLine.appendSwitch('disable-features', [...disabled].join(','))
+}
+
 // Origins allowed to open a popup inside the app (login flows); everything
 // else is redirected to the system browser.
 const AUTH_POPUP_HOSTS = new Set(['accounts.google.com'])
