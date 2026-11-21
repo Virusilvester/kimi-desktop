@@ -53,10 +53,21 @@ Rules:
   Linux). Holds `kimi-code.json` (OAuth session), `settings.json`,
   `window-state.json`. *Not to be confused with:* the IndexedDB conversation
   storage, which lives in the renderer profile under the same root.
-- **Sync queue** (planned) — the set of conversations holding unsent messages,
+- **Sync queue** — the set of conversations holding undelivered messages,
   derived from the database by the `hasPending` index. *Not to be confused
   with:* a queue as a persisted entity — by design it is always recoverable
-  from the database snapshot.
+  from the database snapshot. Storage half exists since 3.3.0 (DB v3: the
+  `hasPending` index + `seq`/`syncStatus`/`lastSeq` fields); the read API and
+  the engine ship with the sync unit (Block 5b).
+- **Sync schema v3** (*sync schema*) — the 3.3.0 conversation-storage model:
+  `Message.seq` (monotonic per conversation, issued by the store — ms
+  timestamps may collide, `seq` must not), `Message.syncStatus`
+  (`pending`/`syncing`/`synced`/`failed`; a missing field means `synced`),
+  `Message.queuedAt`/`syncedAt` (operational lifecycle), `Message.editedAt`
+  (content edits only), `Conversation.hasPending` (stored derivative,
+  `1/0` — counts `pending`/`syncing`/`failed` messages; the single predicate
+  is `isUndelivered()` in `offlineManagerSchema.ts`), `Conversation.lastSeq`
+  (the seq counter). Parts: renderer storage, unit tests, e2e migration.
 
 ## Dependencies between parts
 
