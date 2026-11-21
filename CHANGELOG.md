@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-11-21
+
+### Fixed
+
+- **Schema migrations no longer erase saved conversations** — the local chat
+  database recreated its entire object store on every schema bump, which
+  would have deleted all offline conversations at the first version change.
+  Upgrades are now additive: the v2→v3 migration keeps every conversation
+  and adds the new fields in place, with all timestamps preserved
+  byte-for-byte.
+- **`updatedAt` semantics fixed at the storage layer** — the store stamped
+  `updatedAt` with the current time on every save, so imports and operational
+  writes silently rewrote history and re-sorted the conversation list.
+  Records are now written as given: `updatedAt` means "last user-visible
+  activity" and is set by the caller; imported conversations keep their
+  original timestamps. (The offline-chat autosave still refreshes
+  `updatedAt` while a chat is open; that flow is reworked with the upcoming
+  sync queue.)
+
+### Added
+
+- **Sync-ready message schema** — each message carries a per-conversation
+  sequence number (monotonic, issued by the store) and a sync status
+  (`pending` / `syncing` / `synced` / `failed`); each conversation carries a
+  `hasPending` flag, indexed as the basis of the future offline sync queue.
+  Conversations saved by older versions are backfilled automatically
+  (`synced`, sequence by position).
+- **Database migration test** — `npm run test:e2e:migration` seeds a
+  database from the previous schema in a throwaway profile and verifies that
+  the app migrates it without data loss, that the backfill lands, and that
+  the conversation list still shows the migrated chats.
+
 ## [3.2.1] - 2026-11-21
 
 ### Fixed
