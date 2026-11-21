@@ -133,7 +133,6 @@ function App(): React.JSX.Element {
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenSidebar={() => setIsSidebarOpen(true)}
           isOffline={isOffline}
-          hasSession={hasSession}
         />
 
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex' }}>
