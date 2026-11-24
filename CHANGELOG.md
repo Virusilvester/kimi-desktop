@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.1] - 2026-11-24
+
+### Fixed
+
+- **Offline chat no longer blocks typing while a reply is pending** — the
+  input and send button were disabled until the answer arrived, which without
+  network could take arbitrarily long. Messages now queue as `pending` and a
+  serial queue delivers them; the input stays live and queued messages retry
+  on the next send or when the network returns.
+- **Shift+Enter inserts a newline** — the single-line input is now a
+  multiline textarea: Enter sends, Shift+Enter breaks the line, and the field
+  auto-grows to a few lines.
+- **Answered messages are no longer re-sent** — the chat view kept a second,
+  unsaved message list that was merged into the conversation on every save
+  and never cleared, so answered messages duplicated in the database and went
+  into every subsequent API request multiple times. The send flow now keeps a
+  single message list on the v3 sync schema: each request carries every
+  message exactly once, and exactly the sent messages are marked `synced`
+  when the reply lands.
+- **Fresh chats no longer overwrite each other** — "New Chat" in the sidebar
+  used a shared placeholder id, so consecutive new chats saved into one
+  record. The first send now mints a real id.
+- **Failed sends no longer write fake assistant messages** — a failed request
+  used to append an assistant-looking error to the chat, which then went back
+  to the API as conversation context. Failures now show a dismissible notice
+  and leave the message queued.
+- **Sidebar order is stable again** — the 10-second autosave stamped
+  `updatedAt` on every tick, re-sorting the conversation list without any
+  user activity; conversations are now saved on activity only.
+
 ## [3.4.0] - 2026-11-24
 
 ### Added

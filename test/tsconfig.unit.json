@@ -6,5 +6,8 @@
     "skipLibCheck": true,
     "outDir": "../.tmp/unit-build"
   },
-  "files": ["../src/renderer/src/utils/offlineManagerSchema.ts"]
+  "files": [
+    "../src/renderer/src/utils/offlineManagerSchema.ts",
+    "../src/renderer/src/utils/chatFlow.ts"
+  ]
 }

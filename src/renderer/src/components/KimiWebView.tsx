@@ -1,5 +1,11 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { Conversation, offlineManager, Message } from '../utils/offlineManager'
+import { Conversation, offlineManager } from '../utils/offlineManager'
+import {
+  appendUserMessage,
+  applyAssistantReply,
+  pendingUserMessages,
+  toApiMessages
+} from '../utils/chatFlow'
 import '../assets/KimiWebView.css'
 
 type ConnectionStatus = 'online' | 'offline' | 'checking' | 'error'
@@ -43,21 +49,51 @@ export default function KimiWebView({
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [retryCount, setRetryCount] = useState(0)
-  const [localMessages, setLocalMessages] = useState<Message[]>([])
+  const [activeConversation, setActiveConversation] = useState<Conversation | null>(null)
   const [inputValue, setInputValue] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
-  const [activeConversation, setActiveConversation] = useState<Conversation | null>(null)
+  // The conversation the serial queue is currently working on — the typing
+  // indicator and send errors render only when it matches the viewed chat.
+  const [queueConvId, setQueueConvId] = useState<string | null>(null)
+  const [sendError, setSendError] = useState<{ convId: string | null; message: string } | null>(
+    null
+  )
   const webviewRef = useRef<WebviewTag | null>(null)
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const saveIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  // The queue reads the stored record on every pass; this mirror only answers
+  // "is the queue's conversation still the one on screen".
+  const conversationRef = useRef<Conversation | null>(null)
+  const processingRef = useRef(false)
+  // Flush calls dropped by the processingRef guard, by conversation id: the
+  // draining pass hands the queue to the next one recorded here.
+  const pendingConvIdsRef = useRef<Set<string>>(new Set())
+  // A repeated submit during the append window would queue the same text
+  // twice: the input is cleared only after the record write lands.
+  const sendingRef = useRef(false)
+  // Serializes read-modify-write cycles on the stored record: the send path
+  // (append) and the queue (apply reply) both merge onto a fresh read, and
+  // this chain keeps the two merges from overwriting each other.
+  const recordChainRef = useRef<Promise<unknown>>(Promise.resolve())
+  const withRecordLock = useCallback(<T,>(fn: () => Promise<T>): Promise<T> => {
+    const run = recordChainRef.current.then(fn)
+    recordChainRef.current = run.catch(() => {})
+    return run
+  }, [])
 
-  // Initialize active conversation from props
+  // Initialize active conversation from props. The sidebar's "New Chat"
+  // sentinel ('new') means "no conversation yet": the first send mints a
+  // real id, so fresh chats never share one record.
   useEffect(() => {
     if (currentConversation) {
-      setActiveConversation(currentConversation)
-      setLocalMessages([])
+      setActiveConversation(currentConversation.id === 'new' ? null : currentConversation)
+      setSendError(null)
     }
   }, [currentConversation])
+
+  useEffect(() => {
+    conversationRef.current = activeConversation
+  }, [activeConversation])
 
   // Reload the webview after an in-app auth popup returns to the app origin,
   // so the logged-in UI replaces the login screen.
@@ -103,51 +139,109 @@ export default function KimiWebView({
     }
   }, [connectionStatus])
 
-  // CRITICAL FIX: Auto-save conversations every 10 seconds
-  useEffect(() => {
-    const saveConversation = async (): Promise<void> => {
-      const allMessages = [...(activeConversation?.messages || []), ...localMessages]
+  // Serial send queue. Each pass reads the stored record fresh, sends the
+  // full history (each message exactly once) and, on success, marks exactly
+  // the sent messages 'synced' and appends the reply — re-read before
+  // writing, so a message queued while the request was in flight is neither
+  // lost nor re-sent. Failures leave messages 'pending': the next send or
+  // the network coming back retries them.
+  const processQueue = useCallback(async (conversationId: string): Promise<void> => {
+    if (processingRef.current) {
+      pendingConvIdsRef.current.add(conversationId)
+      return
+    }
+    processingRef.current = true
+    setIsGenerating(true)
+    setQueueConvId(conversationId)
+    let failed = false
+    try {
+      for (;;) {
+        const current = await offlineManager.getConversation(conversationId)
+        if (!current) break
+        const pending = pendingUserMessages(current)
+        if (pending.length === 0) break
 
-      if (allMessages.length === 0) return
-
-      // Create or update conversation
-      const conversation: Conversation = {
-        id: activeConversation?.id || Date.now().toString(),
-        title:
-          activeConversation?.title ||
-          allMessages[0]?.content.substring(0, 50) ||
-          'New Conversation',
-        messages: allMessages,
-        createdAt: activeConversation?.createdAt || Date.now(),
-        updatedAt: Date.now(),
-        isOffline: true
-      }
-
-      try {
-        await offlineManager.saveConversation(conversation)
-        console.log('[KimiWebView] Conversation saved:', conversation.id, conversation.title)
-
-        // Update active conversation reference if it's new
-        if (!activeConversation) {
-          setActiveConversation(conversation)
+        const status = await window.api?.oauthStatus?.()
+        const model = status?.selectedModel || status?.models?.[0]?.id
+        if (!model) {
+          setSendError({
+            convId: conversationId,
+            message: 'No model available. Please log in again.'
+          })
+          failed = true
+          break
         }
-      } catch (error) {
-        console.error('[KimiWebView] Failed to save conversation:', error)
+
+        const result = await window.api?.kimiApiRequest?.({
+          method: 'POST',
+          path: '/chat/completions',
+          body: { model, messages: toApiMessages(current.messages) }
+        })
+
+        if (!result?.success) {
+          setSendError({ convId: conversationId, message: result?.error || 'API request failed' })
+          failed = true
+          break
+        }
+
+        const content = result.data?.choices?.[0]?.message?.content
+        if (typeof content !== 'string') {
+          setSendError({ convId: conversationId, message: 'Unexpected API response' })
+          failed = true
+          break
+        }
+
+        const sentIds = pending.map((m) => m.id)
+        const next = await withRecordLock(async () => {
+          const fresh = await offlineManager.getConversation(conversationId)
+          if (!fresh) return null
+          const updated = applyAssistantReply(fresh, sentIds, {
+            id: (Date.now() + 1).toString(),
+            content,
+            now: Date.now()
+          })
+          await offlineManager.saveConversation(updated)
+          return updated
+        })
+        if (!next) break
+        setSendError((prev) => (prev && prev.convId === conversationId ? null : prev))
+        if (conversationRef.current?.id === conversationId) {
+          setActiveConversation(next)
+        }
+      }
+    } catch (error) {
+      setSendError({ convId: conversationId, message: (error as Error).message })
+      failed = true
+    } finally {
+      processingRef.current = false
+      setIsGenerating(false)
+      setQueueConvId(null)
+      // Flushes dropped by the guard above wait in the set; hand the queue
+      // to the next one — its own finally continues the chain. A failed
+      // pass deletes only its own id: a persistent failure must not
+      // retry-storm, but other conversations' flushes still run.
+      if (failed) {
+        pendingConvIdsRef.current.delete(conversationId)
+      }
+      const nextId = pendingConvIdsRef.current.values().next().value
+      if (nextId !== undefined) {
+        pendingConvIdsRef.current.delete(nextId)
+        void processQueue(nextId)
       }
     }
+  }, [])
 
-    // Save immediately when messages change
-    saveConversation()
-
-    // And periodically
-    saveIntervalRef.current = setInterval(saveConversation, 10000)
-
-    return () => {
-      if (saveIntervalRef.current) {
-        clearInterval(saveIntervalRef.current)
-      }
+  // Flush queued messages when the network (or the viewed conversation)
+  // makes delivery possible again.
+  useEffect(() => {
+    if (
+      connectionStatus === 'online' &&
+      activeConversation &&
+      pendingUserMessages(activeConversation).length > 0
+    ) {
+      void processQueue(activeConversation.id)
     }
-  }, [activeConversation, localMessages])
+  }, [connectionStatus, activeConversation, processQueue])
 
   // Handle webview load events
   useEffect(() => {
@@ -210,6 +304,14 @@ export default function KimiWebView({
     return () => unsubscribe?.()
   }, [])
 
+  // Auto-grow the multiline input up to a few lines.
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`
+  }, [inputValue])
+
   const handleRetry = useCallback(() => {
     setLoadError(null)
     setIsLoading(true)
@@ -220,104 +322,71 @@ export default function KimiWebView({
     }
   }, [])
 
-  // CRITICAL FIX: Use API proxy (Kimi Code OAuth session) to bypass CSP restrictions
+  // Queue the message as 'pending' and let the serial queue deliver it. The
+  // input is never blocked: typing and queueing work while a reply is
+  // pending.
   const handleSendMessage = async (): Promise<void> => {
-    if (!inputValue.trim()) return
+    if (sendingRef.current) return
+    const text = inputValue.trim()
+    if (!text) return
 
     if (!hasSession) {
       onAuthRequired()
       return
     }
 
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: inputValue,
-      timestamp: Date.now()
-    }
-
-    setLocalMessages((prev) => [...prev, newMessage])
-    setInputValue('')
-    setIsGenerating(true)
-
+    sendingRef.current = true
     try {
-      // Resolve the selected model from the OAuth session
-      const status = await window.api?.oauthStatus?.()
-      const model = status?.selectedModel || status?.models?.[0]?.id
-      if (!model) {
-        throw new Error('No model available. Please log in again.')
-      }
-
-      // CRITICAL: Use main process proxy to bypass CSP
-      const result = await window.api?.kimiApiRequest?.({
-        method: 'POST',
-        path: '/chat/completions',
-        body: {
-          model,
-          messages: [...(activeConversation?.messages || []), ...localMessages, newMessage].map(
-            (m) => ({ role: m.role, content: m.content })
-          )
+      const now = Date.now()
+      const next = await withRecordLock(async () => {
+        const stored = activeConversation
+          ? await offlineManager.getConversation(activeConversation.id)
+          : null
+        const base: Conversation = stored ?? {
+          id: now.toString(),
+          title: '',
+          messages: [],
+          createdAt: now,
+          updatedAt: now,
+          isOffline: true
         }
+        const updated = appendUserMessage(base, { id: now.toString(), content: text, now })
+        await offlineManager.saveConversation(updated)
+        return updated
       })
 
-      if (result?.success) {
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: result.data.choices[0].message.content,
-          timestamp: Date.now()
-        }
-        setLocalMessages((prev) => [...prev, assistantMessage])
-
-        // Save conversation immediately after receiving response
-        const allMessages = [
-          ...(activeConversation?.messages || []),
-          ...localMessages,
-          newMessage,
-          assistantMessage
-        ]
-
-        const conversation: Conversation = {
-          id: activeConversation?.id || Date.now().toString(),
-          title:
-            activeConversation?.title ||
-            allMessages[0]?.content.substring(0, 50) ||
-            'New Conversation',
-          messages: allMessages,
-          createdAt: activeConversation?.createdAt || Date.now(),
-          updatedAt: Date.now(),
-          isOffline: false // Mark as online since we got a response
-        }
-
-        await offlineManager.saveConversation(conversation)
-        setActiveConversation(conversation)
-      } else {
-        throw new Error(result?.error || 'API request failed')
-      }
-    } catch (error) {
-      console.error('API call failed:', error)
-      // Add error message
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `Sorry, I cannot connect to the server: ${(error as Error).message}. Your message has been saved locally.`,
-        timestamp: Date.now()
-      }
-      setLocalMessages((prev) => [...prev, errorMessage])
+      setActiveConversation(next)
+      setInputValue('')
+      setSendError(null)
+      void processQueue(next.id)
+    } catch {
+      // The append never landed: keep the typed text and say so.
+      setSendError({
+        convId: activeConversation?.id ?? null,
+        message: 'Could not save the message locally'
+      })
     } finally {
-      setIsGenerating(false)
+      sendingRef.current = false
     }
   }
 
-  // CRITICAL FIX: Start new conversation
+  // Start new conversation
   const handleNewConversation = (): void => {
     setActiveConversation(null)
-    setLocalMessages([])
     setInputValue('')
+    setSendError(null)
   }
 
-  // Combine all messages for display
-  const allMessages = [...(activeConversation?.messages || []), ...localMessages]
+  const allMessages = activeConversation?.messages ?? []
+  // Queue activity is keyed by conversation: a reply generating for another
+  // chat must not show a typing indicator or an error under this one's
+  // messages.
+  const queueBusyHere =
+    isGenerating && queueConvId !== null && queueConvId === activeConversation?.id
+  const visibleSendError =
+    sendError && (sendError.convId === null || sendError.convId === activeConversation?.id)
+      ? sendError
+      : null
 
   // Offline view
   if (isOffline || connectionStatus === 'offline') {
@@ -352,8 +421,8 @@ export default function KimiWebView({
                     <div className="message-text">{msg.content}</div>
                     <div className="message-time">
                       {new Date(msg.timestamp).toLocaleTimeString()}
-                      {msg.role === 'user' && isOffline && (
-                        <span className="pending"> (saved locally)</span>
+                      {msg.role === 'user' && msg.syncStatus === 'pending' && (
+                        <span className="pending"> (queued)</span>
                       )}
                     </div>
                   </div>
@@ -361,7 +430,7 @@ export default function KimiWebView({
               ))
             )}
 
-            {isGenerating && (
+            {queueBusyHere && (
               <div className="message assistant">
                 <div className="message-avatar">🤖</div>
                 <div className="message-content">
@@ -375,25 +444,41 @@ export default function KimiWebView({
             )}
           </div>
 
+          {visibleSendError && (
+            <div className="send-error">
+              <span>
+                ⚠️ {visibleSendError.message} Queued messages retry on the next send or reconnect.
+              </span>
+              <button className="send-error-dismiss" onClick={() => setSendError(null)}>
+                ×
+              </button>
+            </div>
+          )}
+
           <div className="input-area">
-            <input
-              type="text"
+            <textarea
+              ref={inputRef}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  void handleSendMessage()
+                }
+              }}
               placeholder={
                 hasSession
-                  ? 'Type your message...'
+                  ? 'Type your message... (Shift+Enter for a new line)'
                   : 'Log in with your Kimi account in settings to chat'
               }
-              disabled={isGenerating}
+              rows={1}
             />
             <button
               onClick={handleSendMessage}
-              disabled={!inputValue.trim() || isGenerating || !hasSession}
+              disabled={!inputValue.trim() || !hasSession}
               className="send-btn"
             >
-              {isGenerating ? '⏳' : '➤'}
+              {queueBusyHere ? '⏳' : '➤'}
             </button>
           </div>
 

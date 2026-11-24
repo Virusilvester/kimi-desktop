@@ -1,6 +1,6 @@
 {
   "name": "kimi-dock",
-  "version": "3.4.0",
+  "version": "3.4.1",
   "description": "Kimi Dock - desktop dock for Kimi AI (fork of kimi-desktop, uses Kimi Code Plan)",
   "main": "./out/main/index.js",
   "author": "heni <eugene.krokhalev@gmail.com>",
