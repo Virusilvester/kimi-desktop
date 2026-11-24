@@ -48,7 +48,11 @@ Rules:
 - **Offline mode** — the app's fallback chat UI shown when the webview fails to
   load. *Not to be confused with:* true offline operation — chat responses
   still require network (they go through the API); only history, search and
-  local message storage work without network.
+  local message storage work without network. **Forced offline mode**
+  (*force offline*) — the same UI shown on demand, without a network outage:
+  the persisted setting `forceOfflineMode` (3.4.0), flipped from a title-bar
+  toggle or Settings → Advanced; a debugging aid. While forced, the offline
+  view hides "Try Reconnecting"; the title-bar badge reads "Forced Offline".
 - **userData** — Electron's per-app data directory (`~/.config/kimi-dock` on
   Linux). Holds `kimi-code.json` (OAuth session), `settings.json`,
   `window-state.json`. *Not to be confused with:* the IndexedDB conversation
