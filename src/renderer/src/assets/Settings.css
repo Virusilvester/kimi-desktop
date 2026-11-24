@@ -173,6 +173,23 @@
   min-width: 150px;
 }
 
+.workspace-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 55%;
+}
+
+.workspace-path {
+  color: #888;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: right;
+}
+
 .setting-item input[type='number']:disabled {
   opacity: 0.5;
   cursor: not-allowed;

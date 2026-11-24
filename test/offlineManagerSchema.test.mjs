@@ -14,7 +14,7 @@ import {
   isUndelivered,
   migrateLegacyRecord,
   toRecord
-} from '../.tmp/unit-build/offlineManagerSchema.js'
+} from '../.tmp/unit-build/renderer/src/utils/offlineManagerSchema.js'
 
 const legacyConversation = {
   id: 'conv-1',

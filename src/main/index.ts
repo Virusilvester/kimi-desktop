@@ -11,7 +11,7 @@ import {
   session,
   Notification
 } from 'electron'
-import { join, resolve, sep } from 'path'
+import { join, resolve, sep, basename, dirname, isAbsolute } from 'path'
 import fs from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -31,6 +31,15 @@ import {
   CLIPBOARD_READ_FORMATS,
   CLIPBOARD_WRITE_FORMATS
 } from './clipboard'
+import {
+  listEntries,
+  listFilesRecursive,
+  readTextFile,
+  writeTextFile,
+  resolveInWorkspace
+} from './workspace'
+import { resolveRun, substitutePlaceholders } from './runConfig'
+import { startProcess, stopProcess, stopAllProcesses } from './runner'
 
 // Google login: GIS only falls back to its OAuth popup flow when FedCM is
 // unavailable. Disabling the FedCm feature makes navigator.credentials.get
@@ -158,6 +167,7 @@ interface AppSettings {
   spellCheck: boolean
   hardwareAcceleration: boolean
   cacheSize: number
+  workspaceRoot: string
 }
 
 // Global window reference - MUST be global to prevent GC
@@ -186,7 +196,8 @@ const defaultSettings: AppSettings = {
   fontSize: 'medium',
   spellCheck: true,
   hardwareAcceleration: true,
-  cacheSize: 0
+  cacheSize: 0,
+  workspaceRoot: ''
 }
 
 // Migrate data from the upstream "kimi-desktop" userData dir (Linux: ~/.config/kimi-desktop)
@@ -368,6 +379,10 @@ function sanitizeSettings(input: unknown): AppSettings | null {
     }
     settings.fontSize = input.fontSize
   }
+  if ('workspaceRoot' in input) {
+    if (typeof input.workspaceRoot !== 'string') return null
+    settings.workspaceRoot = input.workspaceRoot
+  }
 
   return settings
 }
@@ -397,6 +412,9 @@ function coerceSettings(input: unknown): AppSettings {
   }
   if (input.fontSize === 'small' || input.fontSize === 'medium' || input.fontSize === 'large') {
     settings.fontSize = input.fontSize
+  }
+  if (typeof input.workspaceRoot === 'string') {
+    settings.workspaceRoot = input.workspaceRoot
   }
 
   return settings
@@ -886,6 +904,201 @@ ipcMain.on('open-dev-tools', () => {
   mainWindow?.webContents.openDevTools()
 })
 
+/* ---------- WORKSPACE FS GATEWAY + RUN CONSOLE ---------- */
+
+// The workspace root is a user setting; every handler refuses to work
+// without it (the renderer shows a "choose folder" prompt in that state).
+// Normalized once here: a hand-edited trailing slash or a relative path
+// must not break the containment check downstream.
+function getWorkspaceRoot(): string {
+  const root = loadSettings().workspaceRoot
+  if (!root) throw new Error('Workspace folder is not set')
+  return resolve(root)
+}
+
+// The chat directory is exactly one level under the workspace root.
+function resolveChatDir(root: string, chatId: unknown): string {
+  if (
+    typeof chatId !== 'string' ||
+    !/^[^/\\]+$/.test(chatId) ||
+    chatId === '.' ||
+    chatId === '..'
+  ) {
+    throw new Error('Invalid chat id')
+  }
+  return resolveInWorkspace(root, chatId)
+}
+
+ipcMain.handle('fs-list', async (_, relDir: unknown) => {
+  try {
+    if (typeof relDir !== 'string') throw new Error('Invalid path')
+    return { success: true, entries: listEntries(getWorkspaceRoot(), relDir) }
+  } catch (error) {
+    return { success: false, error: (error as Error).message }
+  }
+})
+
+ipcMain.handle('fs-list-recursive', async (_, relDir: unknown) => {
+  try {
+    if (typeof relDir !== 'string') throw new Error('Invalid path')
+    return { success: true, files: listFilesRecursive(getWorkspaceRoot(), relDir) }
+  } catch (error) {
+    return { success: false, error: (error as Error).message }
+  }
+})
+
+ipcMain.handle('fs-read', async (_, relPath: unknown) => {
+  try {
+    if (typeof relPath !== 'string') throw new Error('Invalid path')
+    return { success: true, content: readTextFile(getWorkspaceRoot(), relPath) }
+  } catch (error) {
+    return { success: false, error: (error as Error).message }
+  }
+})
+
+ipcMain.handle('fs-write', async (_, relPath: unknown, content: unknown) => {
+  try {
+    if (typeof relPath !== 'string') throw new Error('Invalid path')
+    if (typeof content !== 'string') throw new Error('Invalid content')
+    writeTextFile(getWorkspaceRoot(), relPath, content)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: (error as Error).message }
+  }
+})
+
+// Resolve the command for a file: built-in table < run.json (free-form input
+// in the run panel is the third, later level). Placeholders are substituted
+// here, in main, so the panel shows the exact command that will run.
+ipcMain.handle('proc-resolve', async (_, chatId: unknown, relPath: unknown) => {
+  try {
+    const root = getWorkspaceRoot()
+    const chatDir = resolveChatDir(root, chatId)
+    if (typeof relPath !== 'string' || relPath.length === 0) throw new Error('Invalid path')
+    const absFile = resolveInWorkspace(chatDir, relPath)
+
+    let runJsonText: string | null = null
+    try {
+      runJsonText = readTextFile(chatDir, 'run.json')
+    } catch {
+      // no readable run.json — built-in table decides
+    }
+
+    const { resolved, runJsonError } = resolveRun({ relPath, runJsonText })
+    if (!resolved) {
+      return { success: true, resolved: null, runJsonError }
+    }
+
+    const base = basename(absFile)
+    const ctx = {
+      file: absFile,
+      dir: dirname(absFile),
+      name: base.replace(/\.[^.]+$/, ''),
+      base
+    }
+    const spec = {
+      ...resolved.spec,
+      command: substitutePlaceholders(resolved.spec.command, ctx),
+      ...(resolved.spec.cwd !== undefined
+        ? { cwd: substitutePlaceholders(resolved.spec.cwd, ctx) }
+        : {})
+    }
+    return {
+      success: true,
+      resolved: { ...resolved, spec },
+      runJsonError
+    }
+  } catch (error) {
+    return { success: false, error: (error as Error).message }
+  }
+})
+
+const PROC_COMMAND_MAX_LENGTH = 4000
+const PROC_ENV_MAX_ENTRIES = 50
+const PROC_TIMEOUT_MAX_SEC = 3600
+
+ipcMain.handle('proc-start', async (_, payload: unknown) => {
+  try {
+    const root = getWorkspaceRoot()
+    if (!isRecord(payload)) throw new Error('Invalid payload')
+    const chatDir = resolveChatDir(root, payload.chatId)
+    if (typeof payload.command !== 'string' || payload.command.trim().length === 0) {
+      throw new Error('Empty command')
+    }
+    if (payload.command.length > PROC_COMMAND_MAX_LENGTH) {
+      throw new Error('Command too long')
+    }
+    if (!fs.existsSync(chatDir) || !fs.statSync(chatDir).isDirectory()) {
+      throw new Error('Chat directory does not exist')
+    }
+
+    // cwd: default the chat directory; a run.json cwd must stay inside it.
+    let cwd = chatDir
+    if (payload.cwd !== undefined) {
+      if (typeof payload.cwd !== 'string') throw new Error('Invalid cwd')
+      cwd = isAbsolute(payload.cwd)
+        ? resolve(payload.cwd)
+        : resolveInWorkspace(chatDir, payload.cwd)
+      if (cwd !== chatDir && !cwd.startsWith(chatDir + sep)) {
+        throw new Error('Refused cwd outside the chat directory')
+      }
+      if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
+        throw new Error('cwd does not exist')
+      }
+    }
+
+    let env: Record<string, string> | undefined
+    if (payload.env !== undefined) {
+      if (!isRecord(payload.env)) throw new Error('Invalid env')
+      const entries = Object.entries(payload.env)
+      if (entries.length > PROC_ENV_MAX_ENTRIES) throw new Error('Too many env entries')
+      env = {}
+      for (const [key, value] of entries) {
+        if (typeof value !== 'string') throw new Error('Invalid env value')
+        env[key] = value
+      }
+    }
+
+    let timeoutSec: number | undefined
+    if (payload.timeoutSec !== undefined) {
+      if (
+        typeof payload.timeoutSec !== 'number' ||
+        !Number.isFinite(payload.timeoutSec) ||
+        payload.timeoutSec <= 0 ||
+        payload.timeoutSec > PROC_TIMEOUT_MAX_SEC
+      ) {
+        throw new Error('Invalid timeoutSec')
+      }
+      timeoutSec = payload.timeoutSec
+    }
+
+    const id = startProcess({
+      command: payload.command,
+      cwd,
+      env,
+      timeoutSec,
+      onOutput: (stream, data) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('proc-output', { id, stream, data })
+        }
+      },
+      onExit: (code, signal) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('proc-exit', { id, code, signal })
+        }
+      }
+    })
+    return { success: true, id }
+  } catch (error) {
+    return { success: false, error: (error as Error).message }
+  }
+})
+
+ipcMain.handle('proc-stop', async (_, id: unknown) => {
+  if (typeof id !== 'string') return { success: false, error: 'Invalid id' }
+  return { success: stopProcess(id) }
+})
+
 // Handle protocol URLs (deep linking)
 app.on('open-url', (event, url) => {
   event.preventDefault()
@@ -979,6 +1192,10 @@ app.whenReady().then(() => {
       mainWindow?.show()
     }
   })
+})
+
+app.on('before-quit', () => {
+  stopAllProcesses()
 })
 
 app.on('window-all-closed', () => {

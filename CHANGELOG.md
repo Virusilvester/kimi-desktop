@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] - 2026-11-24
+
+### Added
+
+- **Artifact editor** — a third surface next to the webview and the offline
+  chat, available in any network state: the title-bar toggle opens it, the
+  📁 Artifacts button in the offline chat header opens it on the current
+  chat. The webview stays mounted and is CSS-hidden, so switching is instant
+  and the kimi.ai session keeps its state. Each chat owns a directory
+  `<workspace>/<chatId>/`; every non-hidden file in it is an artifact of the
+  chat (dot-files stay hidden from the list but remain accessible). Create,
+  edit and save files (Ctrl+S) with dirty tracking.
+- **Workspace folder** — the user-chosen root of the per-chat artifact
+  directories (Settings → General). It is an API-gateway entity: the
+  renderer reaches the disk only through the main process, which normalizes
+  every path and refuses anything escaping the root.
+- **Markdown editing** — edit ↔ preview toggle plus a split view with
+  two-way scroll sync (Ctrl+Shift+V / Ctrl+K V). Rendering is markdown-it
+  with `html: false`: raw HTML in the source is escaped, so the preview
+  needs no sanitizer.
+- **Code editing** — CodeMirror 6 with syntax highlighting by file
+  extension.
+- **Run console (tier 1)** — a panel docked under the editor: run the
+  current file via `/bin/bash -c` in the chat directory with streaming
+  stdout/stderr, the exit code and a Stop button. The command is resolved in
+  three levels, later wins: a built-in extension table (zero configuration)
+  < `run.json` at the chat directory root (glob → command template with
+  `{file}`/`{dir}`/`{name}`/`{base}` placeholders, `env`/`cwd`/`timeoutSec`,
+  most specific glob wins) < a free-form command with per-chat history.
+  Files are saved before the run. There is no stdin — interactive programs
+  do not fit tier 1.
+- **run.json assistant skill** — the "?" button in the run panel arms the
+  skill: the offline chat attaches the run.json instructions to outgoing
+  messages (as a system message, never persisted), so the assistant can
+  propose a ready-made configuration for the user's case.
+
 ## [3.4.1] - 2026-11-24
 
 ### Fixed

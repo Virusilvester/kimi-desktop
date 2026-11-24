@@ -30,17 +30,19 @@ if (!fs.existsSync(asarPath)) {
 
 const asar = (args) => execFileSync('npx', ['--yes', 'asar', ...args], { encoding: 'utf-8' })
 
-// asar's hashed asset names differ from out/: locate the renderer bundle
-// inside the archive instead of guessing the name. list prefixes entries
-// with "/", but extract-file wants the bare relative path.
+// asar's hashed asset names differ from out/: locate the renderer chunks
+// inside the archive instead of guessing names. list prefixes entries
+// with "/", but extract-file wants the bare relative path. Every chunk is
+// extracted: a token shipped in ANY of them counts (vendor chunks split
+// the bundle, so a feature string may live outside the entry chunk).
 const entries = asar(['list', asarPath])
-const rendererEntry = entries
+const rendererEntries = entries
   .split('\n')
   .map((line) => line.trim().replace(/^\//, ''))
-  .find((line) => /^out\/renderer\/assets\/index-[^/]+\.js$/.test(line))
-if (!rendererEntry) throw new Error('renderer bundle not found inside app.asar')
+  .filter((line) => /^out\/renderer\/assets\/[^/]+\.js$/.test(line))
+if (rendererEntries.length === 0) throw new Error('renderer bundle not found inside app.asar')
 
-const targets = ['out/main/index.js', 'out/preload/index.js', rendererEntry]
+const targets = ['out/main/index.js', 'out/preload/index.js', ...rendererEntries]
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-verify-asar-'))
 const bundles = []
 let failed = false

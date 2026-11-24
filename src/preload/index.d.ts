@@ -100,6 +100,55 @@ declare global {
         format: 'text' | 'html' | 'image',
         value: string
       ) => Promise<{ success: boolean; error?: string }>
+
+      // Workspace FS gateway (paths relative to the workspace root)
+      fsList: (relDir: string) => Promise<{
+        success: boolean
+        entries?: Array<{ name: string; isDirectory: boolean; size: number; mtimeMs: number }>
+        error?: string
+      }>
+      fsListRecursive: (relDir: string) => Promise<{
+        success: boolean
+        files?: Array<{ path: string; size: number; mtimeMs: number }>
+        error?: string
+      }>
+      fsRead: (relPath: string) => Promise<{ success: boolean; content?: string; error?: string }>
+      fsWrite: (relPath: string, content: string) => Promise<{ success: boolean; error?: string }>
+
+      // Run console (tier 1)
+      procResolve: (
+        chatId: string,
+        relPath: string
+      ) => Promise<{
+        success: boolean
+        resolved?: {
+          spec: {
+            command: string
+            env?: Record<string, string>
+            cwd?: string
+            timeoutSec?: number
+          }
+          source: 'builtin' | 'run-json'
+          matchedGlob?: string
+          hint?: string
+        } | null
+        runJsonError?: string
+        error?: string
+      }>
+      procStart: (payload: {
+        chatId: string
+        command: string
+        env?: Record<string, string>
+        cwd?: string
+        timeoutSec?: number
+      }) => Promise<{ success: boolean; id?: string; error?: string }>
+      procStop: (id: string) => Promise<{ success: boolean }>
+      onProcOutput: (
+        callback: (event: { id: string; stream: 'stdout' | 'stderr'; data: string }) => void
+      ) => () => void
+      onProcExit: (
+        callback: (event: { id: string; code: number | null; signal: string | null }) => void
+      ) => () => void
     }
   }
 }

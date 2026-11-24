@@ -72,6 +72,36 @@ Rules:
   `1/0` — counts `pending`/`syncing`/`failed` messages; the single predicate
   is `isUndelivered()` in `offlineManagerSchema.ts`), `Conversation.lastSeq`
   (the seq counter). Parts: renderer storage, unit tests, e2e migration.
+- **Workspace root** (*workspace folder*) — the user-chosen directory that
+  holds every chat's artifact directory; persisted as `workspaceRoot` in
+  `settings.json`. The renderer reaches it only through the main-process FS
+  gateway (`src/main/workspace.ts`), which normalizes every path and refuses
+  escapes (precedent: `userDataFile()`). Parts: main, preload, renderer
+  (editor, Settings), e2e.
+- **Chat directory** — `<workspaceRoot>/<chatId>/`, the artifact home of one
+  conversation (the id is `Conversation.id`; the sidebar's `'new'` sentinel
+  never reaches the disk). Created lazily on the first file write. *Not to
+  be confused with:* the conversation record in IndexedDB — the directory
+  holds files, the record holds messages.
+- **Artifact** — a non-hidden file inside a chat directory (dot-files and
+  dot-directories — `.venv/`, `.git/`, `.bin/` — are hidden from the
+  artifact list but stay accessible to the FS gateway; `run.json` is a
+  normal visible artifact). Parts: renderer (editor), main (FS gateway).
+- **Run console** (*run panel*, *tier-1 run*) — the panel docked under the
+  editor that runs the current file via `/bin/bash -c` with cwd = chat
+  directory, streaming output, no stdin. Command resolution, later wins:
+  built-in extension table → `run.json` at the chat directory root →
+  free-form command. *Not to be confused with:* a terminal — tier 2 (a real
+  PTY) is a separate future unit over the same IPC surface.
+- **run.json** — the per-chat run configuration: top-level `"run"` mapping
+  glob → command template (string) or `{ command, env, cwd, timeoutSec }`;
+  placeholders `{file} {dir} {name} {base}`; most specific glob wins;
+  `*.ext` matches at any depth. Resolution logic is pure in
+  `src/main/runConfig.ts`; the assistant-facing schema/recipes live in
+  `resources/skills/run-json/SKILL.md`.
+- **Surface** — one of the three switchable main-area views: webview /
+  offline chat / artifact editor. The webview is never unmounted on a
+  switch — it is CSS-hidden (unmounting reloads the kimi.ai SPA).
 
 ## Dependencies between parts
 

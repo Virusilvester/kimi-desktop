@@ -124,7 +124,51 @@ contextBridge.exposeInMainWorld('api', {
     format: 'text' | 'html' | 'image',
     value: string
   ): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('clipboard-write', format, value)
+    ipcRenderer.invoke('clipboard-write', format, value),
+
+  // Workspace FS gateway (paths are relative to the workspace root; main
+  // normalizes and refuses escapes)
+  fsList: (relDir: string): Promise<{ success: boolean; entries?: unknown[]; error?: string }> =>
+    ipcRenderer.invoke('fs-list', relDir),
+  fsListRecursive: (
+    relDir: string
+  ): Promise<{ success: boolean; files?: unknown[]; error?: string }> =>
+    ipcRenderer.invoke('fs-list-recursive', relDir),
+  fsRead: (relPath: string): Promise<{ success: boolean; content?: string; error?: string }> =>
+    ipcRenderer.invoke('fs-read', relPath),
+  fsWrite: (relPath: string, content: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('fs-write', relPath, content),
+
+  // Run console (tier 1): command resolution (built-in table + run.json) and
+  // process lifecycle; output/exit arrive as events
+  procResolve: (
+    chatId: string,
+    relPath: string
+  ): Promise<{ success: boolean; resolved?: unknown; runJsonError?: string; error?: string }> =>
+    ipcRenderer.invoke('proc-resolve', chatId, relPath),
+  procStart: (payload: {
+    chatId: string
+    command: string
+    env?: Record<string, string>
+    cwd?: string
+    timeoutSec?: number
+  }): Promise<{ success: boolean; id?: string; error?: string }> =>
+    ipcRenderer.invoke('proc-start', payload),
+  procStop: (id: string): Promise<{ success: boolean }> => ipcRenderer.invoke('proc-stop', id),
+  onProcOutput: (
+    callback: (event: { id: string; stream: 'stdout' | 'stderr'; data: string }) => void
+  ): (() => void) => {
+    const listener = (_: IpcRendererEvent, event: unknown): void => callback(event as never)
+    ipcRenderer.on('proc-output', listener)
+    return () => ipcRenderer.removeListener('proc-output', listener)
+  },
+  onProcExit: (
+    callback: (event: { id: string; code: number | null; signal: string | null }) => void
+  ): (() => void) => {
+    const listener = (_: IpcRendererEvent, event: unknown): void => callback(event as never)
+    ipcRenderer.on('proc-exit', listener)
+    return () => ipcRenderer.removeListener('proc-exit', listener)
+  }
 })
 
 // Expose electron versions (safe info)

@@ -14,7 +14,7 @@ import {
   applyAssistantReply,
   pendingUserMessages,
   toApiMessages
-} from '../.tmp/unit-build/chatFlow.js'
+} from '../.tmp/unit-build/renderer/src/utils/chatFlow.js'
 
 const emptyConversation = {
   id: 'conv-1',

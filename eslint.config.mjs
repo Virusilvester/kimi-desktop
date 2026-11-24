@@ -37,9 +37,9 @@ export default defineConfig(
     }
   },
   {
-    files: ['scripts/**/*.mjs'],
+    files: ['scripts/**/*.mjs', 'test/**/*.mjs'],
     rules: {
-      // Plain-JS scripts: no return-type annotations exist to write.
+      // Plain-JS scripts and tests: no return-type annotations exist to write.
       '@typescript-eslint/explicit-function-return-type': 'off'
     }
   },

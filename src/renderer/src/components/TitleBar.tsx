@@ -4,6 +4,8 @@ import '../assets/TitleBar.css'
 interface TitleBarProps {
   onOpenSettings: () => void
   onOpenSidebar: () => void
+  onToggleEditor: () => void
+  editorActive: boolean
   isOffline: boolean
   forceOffline: boolean
 }
@@ -11,6 +13,8 @@ interface TitleBarProps {
 export default function TitleBar({
   onOpenSettings,
   onOpenSidebar,
+  onToggleEditor,
+  editorActive,
   isOffline,
   forceOffline
 }: TitleBarProps): React.JSX.Element {
@@ -146,6 +150,26 @@ export default function TitleBar({
       </div>
 
       <div className="window-controls">
+        <button
+          className={`window-btn editor-toggle${editorActive ? ' active' : ''}`}
+          onClick={onToggleEditor}
+          title={editorActive ? 'Back to chat' : 'Artifact editor'}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="16 18 22 12 16 6"></polyline>
+            <polyline points="8 6 2 12 8 18"></polyline>
+          </svg>
+        </button>
+
         <button
           className={`window-btn force-offline-toggle${forceOffline ? ' active' : ''}`}
           onClick={handleToggleForceOffline}

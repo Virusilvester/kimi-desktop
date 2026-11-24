@@ -6,6 +6,7 @@ import {
   pendingUserMessages,
   toApiMessages
 } from '../utils/chatFlow'
+import RUN_JSON_SKILL from '../../../../resources/skills/run-json/SKILL.md?raw'
 import '../assets/KimiWebView.css'
 
 type ConnectionStatus = 'online' | 'offline' | 'checking' | 'error'
@@ -34,6 +35,9 @@ interface KimiWebViewProps {
   forceOffline: boolean
   hasSession: boolean
   onAuthRequired: () => void
+  onOpenArtifacts: (conversation: Conversation) => void
+  runSkillArmed: boolean
+  onDisarmRunSkill: () => void
 }
 
 export default function KimiWebView({
@@ -41,7 +45,10 @@ export default function KimiWebView({
   isOffline,
   forceOffline,
   hasSession,
-  onAuthRequired
+  onAuthRequired,
+  onOpenArtifacts,
+  runSkillArmed,
+  onDisarmRunSkill
 }: KimiWebViewProps): React.JSX.Element {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
     navigator.onLine ? 'online' : 'offline'
@@ -94,6 +101,14 @@ export default function KimiWebView({
   useEffect(() => {
     conversationRef.current = activeConversation
   }, [activeConversation])
+
+  // The armed run.json skill rides every request as a system message
+  // (request-only, never persisted); the ref keeps the serial queue's
+  // closure fresh.
+  const runSkillArmedRef = useRef(runSkillArmed)
+  useEffect(() => {
+    runSkillArmedRef.current = runSkillArmed
+  }, [runSkillArmed])
 
   // Reload the webview after an in-app auth popup returns to the app origin,
   // so the logged-in UI replaces the login screen.
@@ -172,10 +187,16 @@ export default function KimiWebView({
           break
         }
 
+        const apiMessages = toApiMessages(current.messages)
         const result = await window.api?.kimiApiRequest?.({
           method: 'POST',
           path: '/chat/completions',
-          body: { model, messages: toApiMessages(current.messages) }
+          body: {
+            model,
+            messages: runSkillArmedRef.current
+              ? [{ role: 'system', content: RUN_JSON_SKILL }, ...apiMessages]
+              : apiMessages
+          }
         })
 
         if (!result?.success) {
@@ -401,6 +422,24 @@ export default function KimiWebView({
               )}
             </div>
             <div className="offline-badges">
+              {runSkillArmed && (
+                <button
+                  className="skill-chip"
+                  onClick={onDisarmRunSkill}
+                  title="run.json skill attached to outgoing messages — click to detach"
+                >
+                  run.json skill ×
+                </button>
+              )}
+              {activeConversation && (
+                <button
+                  className="artifacts-btn"
+                  onClick={() => onOpenArtifacts(activeConversation)}
+                  title="Open this chat's artifacts in the editor"
+                >
+                  📁 Artifacts
+                </button>
+              )}
               <span className="offline-badge">Offline Mode</span>
               {hasSession && <span className="api-ready">Kimi Code Ready</span>}
             </div>

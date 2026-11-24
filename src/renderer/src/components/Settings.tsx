@@ -19,6 +19,7 @@ interface AppSettings {
   spellCheck: boolean
   hardwareAcceleration: boolean
   cacheSize: number
+  workspaceRoot: string
 }
 
 interface OAuthStatus {
@@ -40,7 +41,8 @@ const defaultSettings: AppSettings = {
   fontSize: 'medium',
   spellCheck: true,
   hardwareAcceleration: true,
-  cacheSize: 0
+  cacheSize: 0,
+  workspaceRoot: ''
 }
 
 // Available endpoints removed: offline chat now uses the Kimi Code OAuth
@@ -187,6 +189,14 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
     const newSettings = { ...settings, [key]: value }
     setSettings(newSettings) // Optimistic update
     await saveSettings(newSettings)
+  }
+
+  const handleChooseWorkspace = async (): Promise<void> => {
+    const picked = await window.api?.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory']
+    })
+    const path = picked?.filePaths?.[0]
+    if (path) await handleSettingChange('workspaceRoot', path)
   }
 
   const handleOAuthLogin = async (): Promise<void> => {
@@ -415,6 +425,24 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
                       />
                       <span className="toggle-slider"></span>
                     </label>
+                  </div>
+
+                  <div className="setting-item">
+                    <label>
+                      <span>Workspace Folder</span>
+                      <small>Chat artifacts live in per-chat folders under this directory</small>
+                    </label>
+                    <div className="workspace-picker">
+                      <span className="workspace-path" title={settings.workspaceRoot}>
+                        {settings.workspaceRoot || 'Not set'}
+                      </span>
+                      <button
+                        className="btn-secondary"
+                        onClick={() => void handleChooseWorkspace()}
+                      >
+                        Choose…
+                      </button>
+                    </div>
                   </div>
 
                   <div className="setting-item">

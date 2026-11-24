@@ -1,0 +1,510 @@
+/* Artifact editor surface: file list, CodeMirror pane, markdown preview,
+   run console. Palette follows the app shell (#111/#1a1a/#222, #4caf50). */
+
+.editor-view {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  background: #111;
+  color: #e0e0e0;
+  overflow: hidden;
+}
+
+.editor-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px;
+  text-align: center;
+}
+
+.editor-placeholder .empty-icon {
+  font-size: 42px;
+}
+
+.editor-placeholder-sub {
+  color: #888;
+  font-size: 13px;
+  max-width: 420px;
+}
+
+.chat-dir-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 320px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.chat-dir-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 14px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #e0e0e0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.chat-dir-item:hover {
+  border-color: #4caf50;
+}
+
+.chat-dir-title {
+  font-size: 14px;
+}
+
+.chat-dir-id {
+  font-size: 11px;
+  color: #777;
+}
+
+/* --- sidebar --- */
+
+.editor-sidebar {
+  width: 220px;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  background: #161616;
+  border-right: 1px solid #2a2a2a;
+}
+
+.editor-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.editor-sidebar-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.editor-sidebar-actions button {
+  background: none;
+  border: none;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.editor-sidebar-actions button:hover {
+  background: #2a2a2a;
+  color: #fff;
+}
+
+.new-file-row {
+  padding: 8px 10px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.new-file-row input {
+  width: 100%;
+  background: #222;
+  border: 1px solid #4caf50;
+  color: #fff;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  outline: none;
+}
+
+.artifact-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.artifact-item {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: #ccc;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.artifact-item:hover {
+  background: #222;
+}
+
+.artifact-item.active {
+  background: #2a3a2a;
+  color: #fff;
+}
+
+.artifact-empty {
+  padding: 16px 10px;
+  color: #777;
+  font-size: 12px;
+  text-align: center;
+}
+
+/* --- content --- */
+
+.editor-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: #1a1a1a;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.editor-back {
+  background: none;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #ccc;
+  cursor: pointer;
+  padding: 4px 10px;
+}
+
+.editor-back:hover {
+  border-color: #4caf50;
+  color: #fff;
+}
+
+.editor-filename {
+  flex: 1;
+  font-size: 13px;
+  color: #ddd;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dirty-dot {
+  color: #ff9800;
+  margin-left: 6px;
+}
+
+.mode-toggle {
+  display: flex;
+  border: 1px solid #333;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.mode-toggle button {
+  background: none;
+  border: none;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+.mode-toggle button.active {
+  background: #2a3a2a;
+  color: #fff;
+}
+
+.editor-save {
+  background: #4caf50;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 5px 14px;
+}
+
+.editor-save:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.editor-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(244, 67, 54, 0.12);
+  border-bottom: 1px solid rgba(244, 67, 54, 0.4);
+  color: #ff6b6b;
+  font-size: 12px;
+}
+
+.editor-error button {
+  background: none;
+  border: none;
+  color: #ff6b6b;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.editor-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.editor-pane {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.editor-pane .code-editor,
+.editor-pane .code-editor .cm-editor {
+  height: 100%;
+}
+
+.preview-pane {
+  border-left: 1px solid #2a2a2a;
+  overflow-y: auto;
+}
+
+/* --- markdown preview --- */
+
+.markdown-preview {
+  padding: 16px 24px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #ddd;
+}
+
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3 {
+  color: #fff;
+  margin: 0.8em 0 0.4em;
+}
+
+.markdown-preview code {
+  background: #222;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 13px;
+}
+
+.markdown-preview pre {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+}
+
+.markdown-preview pre code {
+  background: none;
+  padding: 0;
+}
+
+.markdown-preview blockquote {
+  border-left: 3px solid #4caf50;
+  margin: 0.8em 0;
+  padding: 2px 14px;
+  color: #aaa;
+}
+
+.markdown-preview a {
+  color: #6fbf73;
+}
+
+.markdown-preview table {
+  border-collapse: collapse;
+}
+
+.markdown-preview th,
+.markdown-preview td {
+  border: 1px solid #333;
+  padding: 4px 10px;
+}
+
+/* --- run panel --- */
+
+.run-panel {
+  border-top: 1px solid #2a2a2a;
+  background: #161616;
+  display: flex;
+  flex-direction: column;
+  max-height: 40%;
+}
+
+.run-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.run-panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ccc;
+}
+
+.run-source {
+  flex: 1;
+  font-size: 11px;
+  color: #777;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.run-skill-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid #444;
+  background: none;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.run-skill-btn.armed {
+  border-color: #4caf50;
+  color: #4caf50;
+  background: rgba(76, 175, 80, 0.15);
+}
+
+.run-warning {
+  padding: 6px 12px;
+  background: rgba(255, 152, 0, 0.1);
+  border-bottom: 1px solid rgba(255, 152, 0, 0.3);
+  color: #ff9800;
+  font-size: 12px;
+}
+
+.run-hint {
+  padding: 6px 12px;
+  color: #888;
+  font-size: 11px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.run-command-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.run-command-input {
+  flex: 1;
+  background: #222;
+  border: 1px solid #333;
+  color: #fff;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  outline: none;
+}
+
+.run-command-input:focus {
+  border-color: #4caf50;
+}
+
+.run-history {
+  background: #222;
+  border: 1px solid #333;
+  color: #aaa;
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 6px;
+  max-width: 110px;
+}
+
+.run-start-btn {
+  background: #4caf50;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 7px 14px;
+  white-space: nowrap;
+}
+
+.run-start-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.run-stop-btn {
+  background: #c62828;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 7px 14px;
+  white-space: nowrap;
+}
+
+.run-output {
+  flex: 1;
+  min-height: 80px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 12px;
+}
+
+.run-output-empty {
+  color: #666;
+  font-size: 12px;
+  padding: 8px 0;
+}
+
+.run-chunk {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #ccc;
+}
+
+.run-chunk.stderr {
+  color: #ef9a9a;
+}
+
+.run-chunk.system {
+  color: #ff9800;
+}
+
+.run-exit {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #ef9a9a;
+}
+
+.run-exit.ok {
+  color: #81c784;
+}
