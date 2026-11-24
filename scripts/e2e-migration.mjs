@@ -22,7 +22,6 @@
  * Both real-app launches use throwaway --user-data-dir profiles; the real
  * ~/.config/kimi-dock is never touched.
  */
-/* eslint-disable @typescript-eslint/explicit-function-return-type -- plain-JS e2e script; the rule's return-type syntax is not runnable in .mjs */
 import { _electron as electron } from 'playwright'
 import fs from 'node:fs'
 import os from 'node:os'

@@ -25,6 +25,7 @@ type WebviewConsoleMessageEvent = Event & {
 interface KimiWebViewProps {
   currentConversation: Conversation | null
   isOffline: boolean
+  forceOffline: boolean
   hasSession: boolean
   onAuthRequired: () => void
 }
@@ -32,6 +33,7 @@ interface KimiWebViewProps {
 export default function KimiWebView({
   currentConversation,
   isOffline,
+  forceOffline,
   hasSession,
   onAuthRequired
 }: KimiWebViewProps): React.JSX.Element {
@@ -397,17 +399,21 @@ export default function KimiWebView({
 
           <div className="offline-notice">
             <p>
-              {hasSession
-                ? "You're in offline mode. Messages are saved locally and will persist."
-                : 'Log in with your Kimi account (Settings → Kimi Account) to enable chat functionality.'}
+              {forceOffline
+                ? 'Offline mode is forced — flip the title bar toggle (or Settings → Advanced) to return to the webview. Messages are still saved locally.'
+                : hasSession
+                  ? "You're in offline mode. Messages are saved locally and will persist."
+                  : 'Log in with your Kimi account (Settings → Kimi Account) to enable chat functionality.'}
             </p>
             <div className="notice-actions">
               <button className="btn-secondary" onClick={handleNewConversation}>
                 📝 New Chat
               </button>
-              <button className="btn-primary" onClick={handleRetry}>
-                🔄 Try Reconnecting
-              </button>
+              {!forceOffline && (
+                <button className="btn-primary" onClick={handleRetry}>
+                  🔄 Try Reconnecting
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -36,5 +36,12 @@ export default defineConfig(
       'react-hooks/set-state-in-effect': 'off'
     }
   },
+  {
+    files: ['scripts/**/*.mjs'],
+    rules: {
+      // Plain-JS scripts: no return-type annotations exist to write.
+      '@typescript-eslint/explicit-function-return-type': 'off'
+    }
+  },
   eslintConfigPrettier
 )

@@ -93,6 +93,55 @@ try {
     }
   }
 
+  // 6) Force-offline toggle: the real title-bar button is the primary action.
+  // The app runs against real userData and a partial payload makes main fill
+  // absent keys from defaults — snapshot first and restore the snapshot
+  // verbatim in the finally block.
+  const prevSettings = await window.evaluate(() => window.api.getSettings())
+  let restoreError = null
+  try {
+    // Step 4 left the Settings modal open; its overlay would intercept the
+    // title-bar click.
+    await window.click('.settings-modal .close-btn')
+    await window.waitForSelector('.settings-modal', { state: 'detached', timeout: 5000 })
+
+    // Force a known starting state: on a machine where the developer
+    // actually uses the toggle, the first click below must turn it ON, not
+    // OFF. The finally restores the untouched prevSettings snapshot.
+    const preset = await window.evaluate((prev) => {
+      return window.api.saveSettings({ ...prev, forceOfflineMode: false })
+    }, prevSettings)
+    if (!preset?.success) {
+      throw new Error(`Failed to preset forceOfflineMode=false: ${JSON.stringify(preset)}`)
+    }
+
+    await window.click('.force-offline-toggle')
+    await window.waitForSelector('.offline-chat-view', { timeout: 5000 })
+    const forcedBadge = await window.isVisible('.offline-indicator.forced')
+    const reconnectVisible = await window.isVisible('text=Try Reconnecting')
+    console.log(
+      '[e2e] Force offline: offline view shown, forced badge:',
+      forcedBadge,
+      '| reconnect button visible:',
+      reconnectVisible
+    )
+    if (!forcedBadge) throw new Error('Forced Offline badge not shown')
+    if (reconnectVisible) throw new Error('Try Reconnecting must be hidden in forced mode')
+    await window.screenshot({ path: `${SHOTS}/03-forced-offline.png` })
+
+    await window.click('.force-offline-toggle')
+    await window.waitForSelector('webview.kimi-webview', { timeout: 5000 })
+    console.log('[e2e] Force offline: webview restored after clicking the toggle again')
+  } finally {
+    const restore = await window.evaluate((s) => window.api.saveSettings(s), prevSettings)
+    if (!restore?.success) {
+      restoreError = new Error(
+        `Failed to restore settings after force-offline test: ${JSON.stringify(restore)}`
+      )
+    }
+  }
+  if (restoreError) throw restoreError
+
   console.log('[e2e] PASS')
 } finally {
   await app.close()

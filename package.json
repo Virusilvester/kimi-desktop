@@ -1,6 +1,6 @@
 {
   "name": "kimi-dock",
-  "version": "3.3.1",
+  "version": "3.4.0",
   "description": "Kimi Dock - desktop dock for Kimi AI (fork of kimi-desktop, uses Kimi Code Plan)",
   "main": "./out/main/index.js",
   "author": "heni <eugene.krokhalev@gmail.com>",
@@ -23,6 +23,7 @@
     "build:win": "npm run build && electron-builder --win",
     "build:linux": "npm run build && electron-builder --linux",
     "test:e2e": "node scripts/e2e-smoke.mjs",
+    "verify:artifact": "node scripts/verify-artifact.mjs",
     "test:e2e:migration": "npm run build && node scripts/e2e-migration.mjs",
     "test:unit": "rm -rf .tmp/unit-build && tsc -p test/tsconfig.unit.json && echo '{\"type\":\"module\"}' > .tmp/unit-build/package.json && node --test 'test/*.test.mjs'"
   },

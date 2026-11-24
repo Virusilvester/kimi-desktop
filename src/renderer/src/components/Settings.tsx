@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import '../assets/Settings.css'
 
 interface SettingsProps {
@@ -7,7 +7,7 @@ interface SettingsProps {
 }
 
 interface AppSettings {
-  offlineMode: boolean
+  forceOfflineMode: boolean
   autoSaveConversations: boolean
   saveHistory: boolean
   maxHistoryDays: number
@@ -29,7 +29,7 @@ interface OAuthStatus {
 }
 
 const defaultSettings: AppSettings = {
-  offlineMode: true,
+  forceOfflineMode: false,
   autoSaveConversations: true,
   saveHistory: true,
   maxHistoryDays: 30,
@@ -61,6 +61,9 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
     selectedModel: null
   })
   const [oauthPhase, setOauthPhase] = useState<'idle' | 'waiting' | 'error'>('idle')
+  // Bumped on every settings-changed broadcast; snapshots fetched with an
+  // older epoch must not overwrite the broadcast merge.
+  const settingsEpochRef = useRef(0)
   const [oauthMessage, setOauthMessage] = useState<string | null>(null)
   const [verificationUrl, setVerificationUrl] = useState<string | null>(null)
   const [userCode, setUserCode] = useState<string | null>(null)
@@ -100,6 +103,17 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
     return () => unsubscribe?.()
   }, [])
 
+  // Subscribe to settings saves from any origin (title bar toggle, other
+  // windows): the modal loads once on open and would otherwise save back a
+  // stale snapshot, reverting changes made while it was open.
+  useEffect(() => {
+    const unsubscribe = window.api?.onSettingsChanged?.((incoming) => {
+      settingsEpochRef.current += 1
+      setSettings((prev) => ({ ...prev, ...incoming }))
+    })
+    return () => unsubscribe?.()
+  }, [])
+
   const refreshOAuthStatus = async (): Promise<void> => {
     try {
       const status = await window.api?.oauthStatus?.()
@@ -111,10 +125,15 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
 
   const loadData = async (): Promise<void> => {
     setIsLoading(true)
+    const epoch = settingsEpochRef.current
     try {
       // Load settings
       const savedSettings = await window.api?.getSettings?.()
       if (savedSettings) {
+        if (settingsEpochRef.current !== epoch) {
+          await loadData()
+          return
+        }
         setSettings({ ...defaultSettings, ...savedSettings })
       }
 
@@ -376,21 +395,6 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
                         onChange={(e) =>
                           handleSettingChange('desktopNotifications', e.target.checked)
                         }
-                      />
-                      <span className="toggle-slider"></span>
-                    </label>
-                  </div>
-
-                  <div className="setting-item">
-                    <label>
-                      <span>Enable Offline Mode</span>
-                      <small>Access saved conversations without internet</small>
-                    </label>
-                    <label className="toggle">
-                      <input
-                        type="checkbox"
-                        checked={settings.offlineMode}
-                        onChange={(e) => handleSettingChange('offlineMode', e.target.checked)}
                       />
                       <span className="toggle-slider"></span>
                     </label>
@@ -692,6 +696,23 @@ export default function Settings({ isOpen, onClose }: SettingsProps): React.JSX.
               {activeTab === 'advanced' && (
                 <div className="settings-section">
                   <h3>Advanced Settings</h3>
+
+                  <div className="setting-item">
+                    <label>
+                      <span>Force Offline Mode</span>
+                      <small>
+                        Show the offline chat UI regardless of network state (debugging aid)
+                      </small>
+                    </label>
+                    <label className="toggle">
+                      <input
+                        type="checkbox"
+                        checked={settings.forceOfflineMode}
+                        onChange={(e) => handleSettingChange('forceOfflineMode', e.target.checked)}
+                      />
+                      <span className="toggle-slider"></span>
+                    </label>
+                  </div>
 
                   <div className="setting-item">
                     <label>

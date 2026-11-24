@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] - 2026-11-24
+
+### Added
+
+- **Force offline mode** — an explicit switch for the offline chat UI that
+  no longer requires pulling the network cable. A quick toggle button in the
+  title bar (cloud-off icon) and a checkbox in Settings → Advanced flip one
+  persisted setting (`forceOfflineMode`); the title bar badge reads "Forced
+  Offline" to distinguish the state from a real network outage. In forced
+  mode the offline view hides "Try Reconnecting" (reloading the hidden
+  webview is meaningless there). Chat behavior is unchanged: responses still
+  go through the Kimi Code API proxy, so offline mode keeps its established
+  semantics — local persistence works without network, answers do not.
+
+### Removed
+
+- The "Enable Offline Mode" setting from Settings → General — it was a no-op
+  left from upstream (never read by any code path; saved conversations are
+  always accessible). Settings files carrying the stale key are cleaned up on
+  the first save after upgrade.
+
 ## [3.3.1] - 2026-11-22
 
 ### Removed

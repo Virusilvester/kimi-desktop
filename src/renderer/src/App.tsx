@@ -70,8 +70,13 @@ function App(): React.JSX.Element {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null)
-  const [isOffline, setIsOffline] = useState(!navigator.onLine)
+  const [isNetworkOffline, setIsNetworkOffline] = useState(!navigator.onLine)
+  const [forceOffline, setForceOffline] = useState(false)
   const [hasSession, setHasSession] = useState(false)
+
+  // Effective offline: network down, or the user forced offline mode
+  // (title bar toggle / Settings → Advanced) — e.g. for debugging.
+  const isOffline = isNetworkOffline || forceOffline
 
   const checkSession = useCallback(async (): Promise<void> => {
     try {
@@ -99,17 +104,28 @@ function App(): React.JSX.Element {
     })
 
     // Network status
-    const handleOnline = (): void => setIsOffline(false)
-    const handleOffline = (): void => setIsOffline(true)
+    const handleOnline = (): void => setIsNetworkOffline(false)
+    const handleOffline = (): void => setIsNetworkOffline(true)
 
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
+
+    // Force-offline flag (settings.json): initial load + live updates from
+    // any settings save (Settings modal, title bar toggle)
+    window.api
+      ?.getSettings?.()
+      .then((settings) => setForceOffline(!!settings?.forceOfflineMode))
+      .catch(console.error)
+    const unsubscribeSettingsChanged = window.api?.onSettingsChanged?.((settings) => {
+      setForceOffline(!!settings?.forceOfflineMode)
+    })
 
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
       unsubscribeSettings?.()
       unsubscribeNavigate?.()
+      unsubscribeSettingsChanged?.()
     }
   }, [checkSession])
 
@@ -133,6 +149,7 @@ function App(): React.JSX.Element {
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenSidebar={() => setIsSidebarOpen(true)}
           isOffline={isOffline}
+          forceOffline={forceOffline}
         />
 
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex' }}>
@@ -147,6 +164,7 @@ function App(): React.JSX.Element {
             <KimiWebView
               currentConversation={currentConversation}
               isOffline={isOffline}
+              forceOffline={forceOffline}
               hasSession={hasSession}
               onAuthRequired={() => setIsSettingsOpen(true)}
             />

@@ -114,6 +114,20 @@
   color: #fff;
 }
 
+.window-btn.force-offline-toggle.active {
+  color: #2196f3;
+}
+
+.window-btn.force-offline-toggle.active:hover {
+  background: #333;
+  color: #64b5f6;
+}
+
+.offline-indicator.forced {
+  background: #2196f3;
+  color: #fff;
+}
+
 /* Dark theme adjustments */
 @media (prefers-color-scheme: dark) {
   .titlebar {

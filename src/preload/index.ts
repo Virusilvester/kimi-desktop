@@ -51,6 +51,12 @@ contextBridge.exposeInMainWorld('api', {
   getSettings: (): Promise<unknown> => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings: unknown): Promise<unknown> =>
     ipcRenderer.invoke('save-settings', settings),
+  onSettingsChanged: (callback: (settings: unknown) => void): (() => void) => {
+    const listener: (event: IpcRendererEvent, settings: unknown) => void = (_, settings) =>
+      callback(settings)
+    ipcRenderer.on('settings-changed', listener)
+    return () => ipcRenderer.removeListener('settings-changed', listener)
+  },
 
   // Data clearing
   clearData: (type: string): Promise<unknown> => ipcRenderer.invoke('clear-data', type),

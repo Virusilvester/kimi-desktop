@@ -1,19 +1,22 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import '../assets/TitleBar.css'
 
 interface TitleBarProps {
   onOpenSettings: () => void
   onOpenSidebar: () => void
   isOffline: boolean
+  forceOffline: boolean
 }
 
 export default function TitleBar({
   onOpenSettings,
   onOpenSidebar,
-  isOffline
+  isOffline,
+  forceOffline
 }: TitleBarProps): React.JSX.Element {
   const [isMaximized, setIsMaximized] = useState(false)
   const [appVersion, setAppVersion] = useState('')
+  const toggleForceOfflineInFlight = useRef(false)
 
   useEffect(() => {
     // Listen for maximize state changes
@@ -68,6 +71,31 @@ export default function TitleBar({
     window.api?.maximize?.()
   }, [])
 
+  // Force-offline toggle: flips the persisted setting; App applies the new
+  // state via the settings-changed broadcast, so no local state here. The
+  // next value comes from the freshly fetched settings, not the prop — the
+  // prop may not be resolved yet at startup.
+  const handleToggleForceOffline = useCallback(async () => {
+    // In-flight guard: a second click while the save is pending would read
+    // the same stale state and no-op, making the toggle look stuck.
+    if (toggleForceOfflineInFlight.current) return
+    toggleForceOfflineInFlight.current = true
+    try {
+      const settings = (await window.api?.getSettings?.()) || {}
+      const nextValue =
+        settings.forceOfflineMode === undefined ? !forceOffline : !settings.forceOfflineMode
+      const result = await window.api?.saveSettings?.({
+        ...settings,
+        forceOfflineMode: nextValue
+      })
+      if (!result?.success) console.error('[TitleBar] Failed to toggle force offline')
+    } catch (error) {
+      console.error('[TitleBar] Failed to toggle force offline:', error)
+    } finally {
+      toggleForceOfflineInFlight.current = false
+    }
+  }, [forceOffline])
+
   return (
     <div className="titlebar" onDoubleClick={handleDoubleClick}>
       <div className="titlebar-drag-region">
@@ -108,12 +136,39 @@ export default function TitleBar({
 
           <div className="title">
             Kimi Dock {appVersion && <span className="version">v{appVersion}</span>}
-            {isOffline && <span className="offline-indicator">Offline</span>}
+            {forceOffline ? (
+              <span className="offline-indicator forced">Forced Offline</span>
+            ) : (
+              isOffline && <span className="offline-indicator">Offline</span>
+            )}
           </div>
         </div>
       </div>
 
       <div className="window-controls">
+        <button
+          className={`window-btn force-offline-toggle${forceOffline ? ' active' : ''}`}
+          onClick={handleToggleForceOffline}
+          title={forceOffline ? 'Back online (show Kimi webview)' : 'Force offline mode'}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M4.28 10.04A10.66 10.66 0 0 1 11.99 7c1.74 0 3.4.42 4.86 1.16" />
+            <path d="M5.34 13.66a6.97 6.97 0 0 1 2.38-2.37" />
+            <line x1="2" y1="2" x2="22" y2="22" />
+            <path d="M8.53 16.39a5 5 0 0 1 6.95 0" />
+            <path d="M12 20h.01" />
+          </svg>
+        </button>
+
         <button
           className="window-btn menu-settings"
           onClick={onOpenSettings}

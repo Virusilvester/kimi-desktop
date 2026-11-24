@@ -43,6 +43,9 @@ declare global {
       // Settings management
       getSettings: () => Promise<any>
       saveSettings: (settings: any) => Promise<{ success: boolean; error?: string }>
+      // Fired by main after every successful save-settings (any origin:
+      // Settings modal, title bar toggle, e2e)
+      onSettingsChanged: (callback: (settings: any) => void) => () => void
 
       // Data clearing
       clearData: (

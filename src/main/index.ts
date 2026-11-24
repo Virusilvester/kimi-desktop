@@ -146,7 +146,7 @@ interface WindowState {
 
 // Settings interface
 interface AppSettings {
-  offlineMode: boolean
+  forceOfflineMode: boolean
   autoSaveConversations: boolean
   saveHistory: boolean
   maxHistoryDays: number
@@ -175,7 +175,7 @@ const defaultWindowState: WindowState = {
 
 // Default settings
 const defaultSettings: AppSettings = {
-  offlineMode: true,
+  forceOfflineMode: false,
   autoSaveConversations: true,
   saveHistory: true,
   maxHistoryDays: 30,
@@ -303,7 +303,11 @@ function loadSettings(): AppSettings {
     const path = getSettingsPath()
     if (!fs.existsSync(path)) return defaultSettings
     const contents = fs.readFileSync(path, 'utf-8')
-    return { ...defaultSettings, ...JSON.parse(contents) }
+    // Tolerant merge (coerceSettings, not sanitizeSettings): keys outside
+    // the schema (e.g. the removed offlineMode) never surface, valid fields
+    // of a hand-edited file are kept, only invalid/missing ones fall back
+    // to defaults.
+    return coerceSettings(JSON.parse(contents))
   } catch {
     return defaultSettings
   }
@@ -326,7 +330,7 @@ function saveSettingsToFile(settings: AppSettings) {
 // Minimal manual type checks for the renderer-supplied settings payload
 // (project rule: no schema-validation dependencies).
 const SETTINGS_BOOL_FIELDS = [
-  'offlineMode',
+  'forceOfflineMode',
   'autoSaveConversations',
   'saveHistory',
   'launchOnStartup',
@@ -362,6 +366,36 @@ function sanitizeSettings(input: unknown): AppSettings | null {
     if (input.fontSize !== 'small' && input.fontSize !== 'medium' && input.fontSize !== 'large') {
       return null
     }
+    settings.fontSize = input.fontSize
+  }
+
+  return settings
+}
+
+// Tolerant counterpart of sanitizeSettings, used only by loadSettings:
+// strict for saves (a rejected payload stays rejected), tolerant for load
+// (a hand-edited settings.json keeps its valid keys; only invalid or
+// missing fields fall back to defaults).
+function coerceSettings(input: unknown): AppSettings {
+  const settings = { ...defaultSettings }
+  if (!isRecord(input)) return settings
+
+  for (const field of SETTINGS_BOOL_FIELDS) {
+    if (!(field in input)) continue
+    const value = input[field]
+    if (typeof value === 'boolean') settings[field] = value
+  }
+
+  for (const field of ['maxHistoryDays', 'cacheSize'] as const) {
+    if (!(field in input)) continue
+    const value = input[field]
+    if (typeof value === 'number' && Number.isFinite(value)) settings[field] = value
+  }
+
+  if (input.theme === 'system' || input.theme === 'light' || input.theme === 'dark') {
+    settings.theme = input.theme
+  }
+  if (input.fontSize === 'small' || input.fontSize === 'medium' || input.fontSize === 'large') {
     settings.fontSize = input.fontSize
   }
 
@@ -598,6 +632,7 @@ ipcMain.handle('save-settings', async (_, settings: unknown) => {
   // Apply settings that need immediate effect
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.session.setSpellCheckerEnabled(sanitized.spellCheck)
+    mainWindow.webContents.send('settings-changed', sanitized)
   }
   return { success: true }
 })
