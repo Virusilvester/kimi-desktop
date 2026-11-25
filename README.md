@@ -75,15 +75,27 @@
 
 ## Installation
 
-Kimi Dock targets **Linux arm64** and ships as a `.deb`. Build it from source:
+Kimi Dock targets **Linux** and ships as a `.deb`. Build it from source:
 
 ```bash
 git clone https://github.com/heni/kimi-dock.git
 cd kimi-dock
 npm ci
-npm run build:linux        # → dist/kimi-dock_<version>_arm64.deb
+npm run build:linux        # → dist/kimi-dock_<version>_arm64.deb (host arch)
 sudo apt install ./dist/kimi-dock_*_arm64.deb
 ```
+
+The package is **architecture-specific**: it bundles a native Electron
+binary, so an arm64 `.deb` does not run on x86_64. To build for another
+architecture from any Linux host, pass it to electron-builder:
+
+```bash
+npm run build && npx electron-builder --linux deb --x64   # → dist/kimi-dock_<version>_amd64.deb
+```
+
+No native npm dependencies are involved (`npmRebuild: false`), so the
+cross-build needs no extra toolchain. Note that an x64 package built on an
+arm64 host cannot be launched there — verify it on the target machine.
 
 The package's postinst installs the AppArmor profile
 (`/etc/apparmor.d/kimi-dock`) and reloads it, so the Chromium sandbox works
